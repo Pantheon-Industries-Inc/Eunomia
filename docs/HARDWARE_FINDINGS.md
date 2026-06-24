@@ -151,9 +151,28 @@ implies for future hardware. **[WATCH]** = something to measure/confirm at the b
 ### 2.5 Provisioning / identity at fleet scale
 - **[FINDING]** Today each camera's fob-assignment is hand-written; kit/fob identity is manual.
   The plan is zero-touch (derive the join from a kit_id burned at provisioning).
+- **[FINDING — the camera won't surface its own connection info, even on a laptop (Victor, 2026-06-24)].**
+  The connection facts provisioning needs (the camera's MAC / AP / WiFi / IP, body + .insv serials)
+  **cannot reliably be read off the X3 even with it plugged into a laptop** — the stock device simply
+  doesn't expose them that way. This was the friction in the bench provisioning step (it assumed those
+  facts were readable at the bench; they aren't).
+- **[IN FLIGHT — Victor's fix: an SD-flash provisioning daemon].** Victor is adding a **daemon on the
+  SD flash** that, while the card is in the camera, **collects the camera info needed to connect** and
+  **pushes it to the fob over telnet**. So the SD card itself becomes the agent that extracts the
+  connection info — turning "read facts you can't actually read at the bench" into "the card reports
+  them automatically to the fob." This is the practical realization of the programmatic-provisioning
+  REQ below for the *current* hardware (no new camera firmware needed beyond what the card carries).
+  **Where it lands in our design:** the fields it produces are exactly the `hardware_unit.provisioning`
+  group the contract already models (MAC / AP / IP / firmware) — only the *source* changes (the SD
+  daemon → fob over telnet, not a human at the bench); it is part of the **camera-image** module (the
+  card's packaged agent) and is received by the **coordinator** over its existing telnet channel
+  (possibly a new CoordinatorPort operation, or it rides the existing channel — a firmware-run design
+  input). It also **simplifies the provisioning flow**: the "capture serial/MAC/AP/IP against the unit"
+  step becomes "the SD daemon reports the connection info to the fob," removing the can't-read gap.
 - **[REQ]** Future hardware should support **programmatic, persistent identity/provisioning** (a
   writable, durable kit/unit id the device self-reads to join the right network) so 1,000-unit
-  fleets don't need hand-config. Applies to both the fob and the camera.
+  fleets don't need hand-config. Applies to both the fob and the camera. (Victor's SD daemon is the
+  bridge to this on current hardware.)
 
 ---
 

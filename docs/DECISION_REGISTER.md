@@ -1012,3 +1012,59 @@ contract nested shape.** Log so it's not a surprise when firmware lands.
   STOP-and-flag line** — signatures don't fit the field-DSL at all; reconsider the codegen approach
   there. Per-emitter split (OQ-8) was NOT done (it breaks mypy-from-root under the no-config gate), so
   the generator stays a single sectioned file.
+
+## Updates 2026-06-24 (late) — 0d approved + two Victor findings
+
+**Run 0d — APPROVED, merging.** The operational model (9 entities + a polymorphic `operational-event`
+record + event/as-of/rules-as-docs) implemented through the settled 0b machinery; `contracts/` is now
+fully poured. Gates green (75 tests), drift = 0, the two single-record `_semantics` rules work
+(episode `void⇒void_reason`, footage `spot_check_selected⇒selection_method`), and a programmatic scan
+confirmed zero array-of-objects / zero 2-level nesting / zero nullable+enum across all 11 schemas
+(the OQ-4 / OQ-B shape boundary held). The four new OQs resolved at annotation: **OQ-A** = hard-enum
+only for DOMAIN-closed axes (side/scope/modality/footage_state/selection_method/pairing_method/op),
+open-string + WARN-check for today-closed/growth-prone ones (hardware_unit.type/status,
+person.role/status, operational-event.event_type) — the principle is "closed by the domain, not by
+today's list"; **OQ-B** = calibration intrinsics → opaque object (the heavy data is consumed
+Hermes-side from camera_intrinsics.json, not queried operationally), footage locations → scalar array
+of strings, both STOP-and-flag edges (matrix / per-location objects) named not crossed; **OQ-C** =
+operational-event is ONE polymorphic record (event_type discriminator + opaque payload) in
+`contracts/events/`; **OQ-D** = the `session` entity IS the kit↔person binding (no 10th entity) +
+a roster event for resolution outside a session window.
+- **LEAD DEVIATION ratified — a 1-line `generate.py` bugfix (NOT growth).** 0d introduced the first
+  scalar-only entities (kit/task/session/capture_stack/episode); every prior entity had a collection
+  field, so the generator's unconditional `from dataclasses import dataclass, field` was always used,
+  and scalar-only entities tripped ruff F401 (unused `field`). Fixed by emitting `field` in the import
+  only when an object/array field exists (358→~360 lines). Ratified because it makes the existing
+  emitter emit VALID Python for a field-shape always legal in the DSL but first exercised in 0d — the
+  DSL, the emitters, and every 0b output are byte-identical (verified). The two alternatives were both
+  worse: fake collection fields corrupt the model (anti-faithfulness); a `[tool.ruff]` per-file-ignore
+  violates the no-ruff-config invariant. The agent correctly STOPPED and flagged it rather than
+  quietly editing the generator. The "byte-identical generate.py" check was a proxy for "no generator
+  growth"; this honors the intent. Also ratified: `nullable:true + enum` rejects null structurally, so
+  `selection_method`/`hardware_unit.side` are non-nullable enums (omitted-not-null).
+
+**FINDING + IN-FLIGHT (Victor, 2026-06-24) — SD-flash provisioning daemon.** The camera will NOT
+surface its own connection info (MAC / AP / WiFi / IP, body + .insv serials) even plugged into a
+laptop — the stock X3 doesn't expose it. This was the hidden friction in the bench provisioning step.
+Victor is adding a **daemon on the SD flash** that, while the card is in the camera, collects the
+needed connection info and **pushes it to the fob over telnet** — the SD card becomes the agent that
+extracts what a human can't read at the bench. **Where it lands in our design:** the fields are
+exactly the `hardware_unit.provisioning` group the contract already models (0d) — only the SOURCE
+changes (SD daemon → fob over telnet, not a human); it is part of the **camera-image** module and is
+received by the **coordinator** over telnet (a new CoordinatorPort op, or rides the existing channel —
+a FIRMWARE-RUN design input). It simplifies the provisioning flow: "capture serial/MAC/AP/IP against
+the unit" becomes "the SD daemon reports the connection info to the fob," removing the can't-read gap.
+Recorded in hardware-findings §2.5. **NOTE: Victor is actively improving his stack — treat his
+in-flight work (this daemon, and others) as inputs to reconcile, not settled given facts.**
+
+**DESIGN RULE generalized (observed across rig runs, 2026-06-24) — button feedback applies to ALL
+delayed fob buttons, not just START.** The instant-ack + working-state + lockout treatment (UI layer)
+backed by the "valid only from the right state, extra taps dropped" core guarantee was specced for
+START (the ~3 s pipeline re-init worst case). It now applies to **every fob control whose action has a
+perceptible delay** — any button where the fob does network/telnet/OSC work between the touch and the
+result and the operator could wonder whether the tap landed: STOP (finalize/flush latency), and any
+settings/sign-in/confirm action that round-trips to the camera network or the god's-view server. The
+principle: the visual acknowledgement is decoupled from the slow action on every button, and no button
+can be double-fired mid-action — the operator never guesses whether a press landed, regardless of
+which control. A genuinely-instant button needs no working-state (the rule is scoped to "perceptible
+delay"). Folded into SPEC §1.8 (retitled from START-only to the general rule).
