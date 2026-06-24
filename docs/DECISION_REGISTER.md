@@ -536,6 +536,41 @@ the real schemas — STOP-and-flag (OQ-10) holds.
 NEXT: Run 0b — encode the real `contracts/` from CONTRACT.md through the proven harness, with the
 hybrid validator (Option C). Plan-only → annotate → implement, report-back + merge-readiness baked in.
 
+**UPDATE (post-0b/0c, 2026-06-24) — run status:**
+- **Run 0b — MERGED** (PR #2, squash `201c0d5`). The record surface: `contracts/sidecar/` +
+  `release/` + `events/` + the two-axis versioning, through the 0a harness; the `ping` proof retired.
+  The Option-C hybrid validator proven both directions on 33 fixtures (warn-field downgrade +
+  `void⇒void_reason` semantic hard-reject). Shipped validator pure-stdlib; `jsonschema` dev-only.
+  Generator 358 lines (flagged, accepted — more field-types + one bounded conditional + shallow
+  nesting, NOT a framework; real cross-field logic hand-written in `_semantics`). 0b judgment calls
+  ratified as carry-forwards (sidecar nested-shape-vs-rig, release hard/warn split → document into
+  CONTRACT §4, telemetry strictness deferred).
+- **Run 0c (interfaces half) — MERGED** (PR #3, squash `cc5c40f`). The two hardware seams
+  (`CoordinatorPort` + `CaptureDevicePort`) as operation signatures → one `ports.iface.yaml` source →
+  two targets (C++ pure-virtual abstract header + Python `typing.Protocol`; no JSON Schema — an
+  interface isn't a record). **LEAD-OQ-A resolved = option C** (a SEPARATE `generate_interfaces.py`
+  mini-emitter; `generate.py` byte-identical to 0b, so STOP-and-flag honored provably; sibling
+  `make codegen` wiring, never imported — sidesteps the mypy-from-root constraint). **Closed type
+  vocabulary HARD-ENFORCED** symmetrically in both emitters (`_check_return`/`_check_param`, raises
+  `SystemExit` on a non-vocab type — the reviewer's catch, fixed before merge). The boundary that keeps
+  C from degrading into A: the vocabulary is closed; a new type is a STOP-and-flag, not an IDL edit.
+  OQ-7 = `record` → the generated `Sidecar`/`const eunomia::Sidecar&` (the one type-safety link).
+  Proven in sync by the drift gate; C++ implementability via `pio test -e native` mock subclasses;
+  Python conformance via a mypy-checked mock. **LEAD-OQ-B resolved = SPLIT, interfaces-first.**
+- **Run 0d (operational model) — NEXT.** The §3 record-shaped entities (9) + the event/lifecycle
+  representation + as-of + the §3 rules as types+docs (not enforced join). **Pre-approved OQs carried
+  in `plan.md` + the annotations: OQ-3** (current-state records + tightened sync-delta envelope + a
+  first-class operational-event record only where a lifecycle carries its own fields), **OQ-4** (THE
+  watch-item: lifecycle history is a SEPARATE append-only event record, NEVER an embedded object array
+  — this is what keeps every entity inside the existing DSL and `generate.py` un-grown; an
+  array-of-objects/2-level-nesting need is a STOP-and-flag, not a silent DSL extension), **OQ-5**
+  (footage_reference held-purge fields; tuning values out of scope; name = `purged`), **OQ-6**
+  (validity ranges for as-of; resolver is a later run), **OQ-9** (tighten sync-delta `entity` as a
+  WARN-level `_semantics` check, NOT a hard enum — a hard enum is a §5-violating narrowing; lands with
+  0d), **OQ-10** (no operational C++ target), **OQ-11** (episode.void⇒void_reason + footage
+  hold-consistency, the only single-record rules), **OQ-12** (pairing fields on episode too). 0d should
+  move fast: record-shaped reuse of the settled 0b machinery + the held decisions.
+
 ## Already decided (this session)
 
 **D-1 · Repo scope** — One monorepo holds the WHOLE capture-program system: firmware
