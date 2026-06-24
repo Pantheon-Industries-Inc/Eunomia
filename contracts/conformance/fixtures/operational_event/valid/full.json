@@ -1,0 +1,14 @@
+{
+  "schema": "eunomia-operational-event/v1",
+  "event_id": "evt_001",
+  "event_type": "unit_faulted",
+  "entity": "hardware_unit",
+  "entity_id": "unit_42",
+  "as_of": "2026-06-24T12:00:00Z",
+  "reason": "lens cracked",
+  "related_unit_id": "unit_43",
+  "related_kit_id": "kit_07",
+  "payload": {
+    "previous_status": "deployed"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "schema": "eunomia-episode/v1",
+  "episode_id": "550e8400-e29b-41d4-a716-446655440000",
+  "global_episode_seq": 1009,
+  "kit_id": "kit_07",
+  "side": "left",
+  "task_id": "t_fold",
+  "station_id": "5",
+  "session_id": "sess_xyz",
+  "recorded_at": "2026-06-24T10:00:00Z",
+  "void": true
+}

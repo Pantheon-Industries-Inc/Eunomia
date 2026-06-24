@@ -1,0 +1,13 @@
+{
+  "schema": "eunomia-capture-stack/v1",
+  "capture_stack_id": "cs_1",
+  "version": 3,
+  "modality": "umi",
+  "camera_model": "Insta360 X3",
+  "camera_fw": "1.1.6",
+  "fob_board": "esp32-fob-wifi",
+  "fob_fw": "3.8.3",
+  "gripper_hw": "umi-gripper-v2",
+  "sd_model": "Sandisk Extreme 256",
+  "coordinator_sw": "discardd-2.0"
+}

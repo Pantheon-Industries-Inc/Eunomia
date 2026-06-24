@@ -1,0 +1,71 @@
+# Eunomia operational entity — calibration (an OPTIONAL scoped entity).
+#
+# AUTHORITY: docs/CONTRACT.md §3.1 (calibration) + C-11 (model the axis of uncertainty as a VALUE, not
+# a structure). `scope` ∈ none|fleet|per_camera so none/fleet-wide/per-unit ALL fit with no schema
+# change. `camera_serial` is the physical identity any calibration resolves through; `calibration_id`
+# is nullable/optional on the episode.
+#
+# OQ-A: `scope` IS a domain-closed hard enum (none|fleet|per_camera — the three calibration models).
+# OQ-B: the HEAVY intrinsics are an OPAQUE `object` blob + a `distortion_coeffs` scalar array — because
+# the operational store only needs scope + validity + camera_serial + a reference; the full intrinsics
+# matrix is consumed HERMES-SIDE by the de-fisheye render (camera_intrinsics.json), not queried
+# operationally. STOP-AND-FLAG (honored, not crossed): a structured 3×3 matrix / array-of-matrices
+# would be array-of-arrays = DSL growth — do NOT add it; the opaque blob carries it instead.
+# OQ-6: effective_from/effective_to = the calibration validity range. TARGETS: [jsonschema, python].
+
+schema: eunomia-calibration/v1
+title: Calibration
+description: An optional scoped calibration entity (scope none|fleet|per_camera) — CONTRACT §3.1, C-11.
+targets: [jsonschema, python]
+
+fields:
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-calibration/v1]
+    description: Schema identifier; additive semver (§5).
+  - name: calibration_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The calibration identity (the anchor; referenced nullably from the episode).
+  - name: scope
+    type: string
+    required: hard
+    enum: [none, fleet, per_camera]
+    description: Which calibration world we're in (domain-closed hard enum, C-11). Data, not structure.
+  - name: camera_serial
+    type: string
+    required: warn
+    nullable: true
+    description: The camera this resolves through (null for none/fleet; the physical identity, C-11).
+  - name: method
+    type: string
+    required: warn
+    nullable: true
+    description: Calibration method/provenance.
+  - name: captured_at
+    type: string
+    required: warn
+    nullable: true
+    description: When the calibration was captured.
+  - name: effective_from
+    type: string
+    required: warn
+    nullable: true
+    description: Start of validity (OQ-6 as-of range).
+  - name: effective_to
+    type: string
+    required: warn
+    nullable: true
+    description: End of validity; null = current (OQ-6).
+  - name: distortion_coeffs
+    type: array
+    items: number
+    required: warn
+    description: Distortion coefficients (scalar array; lightweight queryable, OQ-B).
+  - name: intrinsics
+    type: object
+    required: warn
+    nullable: true
+    description: OPAQUE heavy-data blob (fx/fy/cx/cy/stitch params) — consumed Hermes-side, not queried (OQ-B).

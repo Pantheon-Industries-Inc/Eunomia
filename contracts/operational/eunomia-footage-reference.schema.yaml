@@ -1,0 +1,67 @@
+# Eunomia operational entity — footage_reference (the lifecycle of an episode's bytes).
+#
+# AUTHORITY: docs/CONTRACT.md §3.1 (footage_reference) + A-2 (edge/ship data split) + the 2026-06-24
+# spot-check / fast-feedback block. Decouples "we have the metadata" from "where the bytes are." The
+# drain REPORTS state transitions; footage is safe to purge from Styx only once on_hades is verified.
+# Keyed by episode_id (one footage_reference per episode, A-2).
+#
+# OQ-A: `footage_state` + `selection_method` are domain-closed hard enums.
+# NAME: `purged` per CONTRACT §3 (NOT `purged_from_styx` from A-2 — CONTRACT wins).
+# OQ-B: `locations` is a SCALAR ARRAY of strings (tier:path). STOP-AND-FLAG (honored): structured
+# per-location objects would be array-of-objects = DSL growth — do NOT add.
+# OQ-5 HELD-PURGE: keep until (a) rendered_on_hades_at is set AND (b) the N-day window elapses,
+# whichever is LONGER → purge_eligible_at; spot_check_selected + selection_method mark WHY it's held;
+# the Styx watermark is a documented config bounding override (value deferred, §8 — tuning, not contract).
+# OQ-11 CROSS-FIELD RULE (hand-written hard, _semantics): spot_check_selected ⇒ selection_method present.
+# TARGETS: [jsonschema, python].
+
+schema: eunomia-footage-reference/v1
+title: FootageReference
+description: An episode's byte-lifecycle (on_card→…→purged) + the spot-check held-purge fields — CONTRACT §3.1, A-2.
+targets: [jsonschema, python]
+
+fields:
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-footage-reference/v1]
+    description: Schema identifier; additive semver (§5).
+  - name: episode_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The episode whose bytes these are (the key; one footage_reference per episode, A-2).
+  - name: footage_state
+    type: string
+    required: hard
+    enum: [on_card, on_styx, shipped, on_hades, purged]
+    description: The byte lifecycle (domain-closed hard enum; `purged` per CONTRACT §3). Safe-to-purge once on_hades verified.
+  - name: locations
+    type: array
+    items: string
+    required: warn
+    description: Current location(s) as tier:path strings (scalar array; structured per-location = STOP-and-flag, OQ-B).
+  - name: hash
+    type: string
+    required: warn
+    nullable: true
+    description: Optional content hash (transfer-integrity, deferred §8).
+  - name: spot_check_selected
+    type: bool
+    required: warn
+    description: Selected for the fast-feedback spot-check (delays the purge; OQ-5). Requires selection_method (OQ-11).
+  - name: selection_method
+    type: string
+    required: warn
+    enum: [qc_sample, manual_pull]
+    description: WHY held — auto QC sample or a manual pull (domain-closed enum; OMITTED when not selected — absent, not null, OQ-5).
+  - name: rendered_on_hades_at
+    type: string
+    required: warn
+    nullable: true
+    description: When the single Hermes renderer produced the canonical artifact on Hades (OQ-5 held-purge input).
+  - name: purge_eligible_at
+    type: string
+    required: warn
+    nullable: true
+    description: = max(rendered_on_hades_at, the N-day window) — earliest Styx purge; watermark may bound it (OQ-5, values deferred).

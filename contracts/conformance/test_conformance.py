@@ -27,7 +27,22 @@ from pathlib import Path
 import jsonschema
 import pytest
 
-from eunomia_contracts import release, sidecar, sync_delta, telemetry_event
+from eunomia_contracts import (
+    calibration,
+    capture_stack,
+    episode,
+    footage_reference,
+    hardware_unit,
+    kit,
+    operational_event,
+    person,
+    release,
+    session,
+    sidecar,
+    sync_delta,
+    task,
+    telemetry_event,
+)
 from eunomia_contracts.interfaces import CaptureDevicePort, CoordinatorPort
 
 HERE = Path(__file__).resolve().parent
@@ -40,6 +55,17 @@ ENTITIES = {
     "release": ("eunomia-release", release.validate_full),
     "telemetry_event": ("eunomia-telemetry-event", telemetry_event.validate_full),
     "sync_delta": ("eunomia-sync-delta", sync_delta.validate_full),
+    # operational model (Run 0d) — record-shaped reuse of the same hybrid validator
+    "person": ("eunomia-person", person.validate_full),
+    "hardware_unit": ("eunomia-hardware-unit", hardware_unit.validate_full),
+    "kit": ("eunomia-kit", kit.validate_full),
+    "calibration": ("eunomia-calibration", calibration.validate_full),
+    "task": ("eunomia-task", task.validate_full),
+    "session": ("eunomia-session", session.validate_full),
+    "capture_stack": ("eunomia-capture-stack", capture_stack.validate_full),
+    "footage_reference": ("eunomia-footage-reference", footage_reference.validate_full),
+    "episode": ("eunomia-episode", episode.validate_full),
+    "operational_event": ("eunomia-operational-event", operational_event.validate_full),
 }
 
 
@@ -143,6 +169,16 @@ def test_validate_matches_validate_full_hard_channel() -> None:
                 "release": release,
                 "telemetry_event": telemetry_event,
                 "sync_delta": sync_delta,
+                "person": person,
+                "hardware_unit": hardware_unit,
+                "kit": kit,
+                "calibration": calibration,
+                "task": task,
+                "session": session,
+                "capture_stack": capture_stack,
+                "footage_reference": footage_reference,
+                "episode": episode,
+                "operational_event": operational_event,
             }[entity].validate(obj)
             assert hard_only == _validate_full(entity, obj)[0], (
                 f"{entity}/{path.name}: validate disagrees"

@@ -221,6 +221,9 @@ def emit_python(spec: dict, msg: str) -> str:
     subs = [f for f in spec["fields"] if f["type"] == "object" and f.get("fields")]
     blocks = [emit_dataclass(py_class(s["name"]), s["fields"]) for s in subs]
     blocks.append(emit_dataclass(spec["title"], spec["fields"]))
+    # `field` is only emitted for object/array defaults (field(default_factory=...)). A scalar-only
+    # entity (first seen in 0d: kit/task/session/capture_stack/episode) would import it unused -> F401.
+    uses_field = any(f["type"] in ("object", "array") for _p, f in flat)
 
     pattern = f'"{cond_pattern(spec)}"' if cond_fields else '""'
     tables = (
@@ -237,7 +240,7 @@ def emit_python(spec: dict, msg: str) -> str:
     return (
         f'"""{msg}"""\n\n'
         "from __future__ import annotations\n\n"
-        "from dataclasses import dataclass, field\n\n"
+        f"from dataclasses import {'dataclass, field' if uses_field else 'dataclass'}\n\n"
         "from eunomia_contracts import _semantics\n\n\n"
         + "\n\n\n".join(blocks)
         + "\n\n\n"

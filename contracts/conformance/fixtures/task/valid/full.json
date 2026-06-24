@@ -1,0 +1,14 @@
+{
+  "schema": "eunomia-task/v1",
+  "task_id": "t_fold",
+  "version": 2,
+  "task_name": "Fold the towel",
+  "prompt": "fold the towel neatly",
+  "rotation_id": "r2",
+  "station_id": "5",
+  "category": "folding",
+  "bimanual": true,
+  "expected_duration_s": 45.0,
+  "effective_from": "2026-04-01T00:00:00Z",
+  "effective_to": null
+}

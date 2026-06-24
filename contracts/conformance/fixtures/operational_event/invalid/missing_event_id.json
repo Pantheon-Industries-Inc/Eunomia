@@ -1,0 +1,6 @@
+{
+  "schema": "eunomia-operational-event/v1",
+  "event_type": "unit_faulted",
+  "entity": "hardware_unit",
+  "entity_id": "unit_42"
+}

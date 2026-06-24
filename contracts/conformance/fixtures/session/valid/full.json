@@ -1,0 +1,14 @@
+{
+  "schema": "eunomia-session/v1",
+  "session_id": "sess_xyz",
+  "person_id": "p_99",
+  "kit_id": "kit_07",
+  "site_id": "mx_1",
+  "station_id": "5",
+  "fob_session_id": "fs_abc123",
+  "signed_in_at": "2026-06-24T08:00:00Z",
+  "signed_out_at": null,
+  "task_id": "t_fold",
+  "pause_count": 2,
+  "total_pause_ms": 45000.0
+}

@@ -1,0 +1,9 @@
+{
+  "schema": "eunomia-kit/v1",
+  "kit_id": "kit_07",
+  "left_cam_unit_id": "unit_42",
+  "right_cam_unit_id": "unit_43",
+  "fob_unit_id": "unit_07",
+  "effective_from": "2026-03-01T00:00:00Z",
+  "effective_to": null
+}

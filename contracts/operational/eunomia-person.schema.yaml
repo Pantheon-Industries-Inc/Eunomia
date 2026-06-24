@@ -1,0 +1,64 @@
+# Eunomia operational entity — person (the human operator and leads).
+#
+# AUTHORITY: docs/CONTRACT.md §3.1 (person) + B-8 (event-sourced lifecycle). Sourced from HR
+# (Rippling). DECOUPLED FROM KIT — a person is bound to a kit over a TIME RANGE, not identically
+# (the key generalization over the current kit==operator==rig model). The kit↔person binding lives
+# on `session` + a roster `operational-event` (OQ-D), NOT here.
+#
+# FIELD DSL (consumed by contracts/codegen/generate.py): see contracts/sidecar/*.yaml header.
+#   hard = corruption makes the record unsafe as an identity/join anchor                  [CONTRACT §6]
+#   warn = downstream-consumed but recoverable; surfaced in triage, non-blocking
+# TARGETS: [jsonschema, python] only — firmware never reads the operational model (OQ-10).
+#
+# OQ-A (open-string + WARN-check): `role` + `status` are vocabularies "closed by today's list", not by
+# the domain (a new role/status is plausible), so they are OPEN STRINGS structurally (additive-safe,
+# no §5 narrowing) with a hand-written WARN-level value-set check in _semantics (NOT a hard enum).
+#
+# EVENT-SOURCING (OQ-3/B-8): employment lifecycle (onboarded/qualified/offboarded) is append-only
+# `operational-event` records, NEVER an embedded object array (OQ-4). This record is the materialized
+# current-state view; onboarded_at/offboarded_at form the person validity range (OQ-6).
+
+schema: eunomia-person/v1
+title: Person
+description: The human operator/lead — current-state view of the event-sourced person entity (CONTRACT §3.1).
+targets: [jsonschema, python]
+
+fields:
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-person/v1]
+    description: Schema identifier; additive semver (§5).
+  - name: person_id
+    type: string
+    required: hard
+    non_empty: true
+    description: Stable person identity (the only anchor; decoupled from kit, §3.1).
+  - name: name
+    type: string
+    required: warn
+    nullable: true
+    description: Display name (denormalized; PII handling deferred, §8).
+  - name: role
+    type: string
+    required: warn
+    description: Role — OPEN string, WARN-checked against {operator, lead, supervisor} (OQ-A; not a hard enum).
+  - name: status
+    type: string
+    required: warn
+    description: Employment status — OPEN string, WARN-checked against {active, offboarded} (OQ-A).
+  - name: onboarded_at
+    type: string
+    required: warn
+    nullable: true
+    description: When the person was onboarded (start of the person validity range, OQ-6).
+  - name: offboarded_at
+    type: string
+    required: warn
+    nullable: true
+    description: When offboarded (end of validity; null = active). Offboarding revokes access, keeps history (B-8).
+  - name: site_ids
+    type: array
+    items: string
+    required: warn
+    description: Sites the person is associated with (scalar array).

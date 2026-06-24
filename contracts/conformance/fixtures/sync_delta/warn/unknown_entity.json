@@ -1,0 +1,8 @@
+{
+  "schema": "eunomia-sync-delta/v1",
+  "delta_seq": 8,
+  "emitted_at": "2026-06-24T10:07:00Z",
+  "entity": "gizmo",
+  "entity_id": "g_1",
+  "op": "upsert"
+}

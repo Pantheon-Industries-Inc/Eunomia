@@ -1,0 +1,7 @@
+{
+  "schema": "eunomia-operational-event/v1",
+  "event_id": "evt_002",
+  "event_type": "session_opened",
+  "entity": "session",
+  "entity_id": "sess_xyz"
+}

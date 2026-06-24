@@ -1,0 +1,74 @@
+# Eunomia operational-event — an append-only lifecycle event for the operational model.
+#
+# AUTHORITY: docs/CONTRACT.md §3 (event-sourced operational model) + B-8/B-9. The current-state entity
+# records (contracts/operational/) are MATERIALIZED VIEWS; the append-only log is (a) the generic
+# eunomia-sync-delta upsert/delete envelope, plus (b) THIS first-class record where a lifecycle carries
+# its OWN fields beyond the entity snapshot: hardware-unit status transitions (with reason + refs),
+# person onboard/offboard, session open/close, unit_firmware_updated, calibration recorded, task
+# version bump, kit/roster binding changes (OQ-3). The fold/materializer is NOT implemented here — 0d
+# defines the type + documents the derivation.
+#
+# OQ-C (shape): ONE POLYMORPHIC record with an `event_type` discriminator + an opaque `payload`,
+# mirroring eunomia-telemetry-event — so the generator stays lean (NO per-event conditional rules).
+# Placed in contracts/events/ (it is an event record; events/ already holds the operational transport
+# sync-delta). OQ-A: `event_type` is the MOST growth-prone vocabulary (every new lifecycle adds one) →
+# OPEN string + a WARN-level value-set check in _semantics, NEVER a hard enum (a hard enum would be a
+# §5 narrowing). `entity` is WARN-checked against the operational entity set (same as sync-delta).
+# TARGETS: [jsonschema, python] (edge-side Python; firmware never reads it, OQ-10).
+
+schema: eunomia-operational-event/v1
+title: OperationalEvent
+description: An append-only operational lifecycle event (polymorphic by event_type) — CONTRACT §3, B-8/B-9 (OQ-3).
+targets: [jsonschema, python]
+
+fields:
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-operational-event/v1]
+    description: Schema identifier; additive semver (§5).
+  - name: event_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The event's own id (the anchor; append-only idempotency).
+  - name: event_type
+    type: string
+    required: hard
+    non_empty: true
+    description: The discriminator — OPEN string (hard-present), WARN-checked vs the known lifecycle set (OQ-A; never a hard enum).
+  - name: entity
+    type: string
+    required: hard
+    non_empty: true
+    description: Which operational entity type this concerns — OPEN string, WARN-checked vs the §3 entity set (OQ-9 pattern).
+  - name: entity_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The entity instance the event is about.
+  - name: as_of
+    type: string
+    required: warn
+    nullable: true
+    description: The as-of timestamp the change resolves against (event-sourcing; §3, B-8/OQ-6).
+  - name: reason
+    type: string
+    required: warn
+    nullable: true
+    description: Lifecycle reason (e.g. fault reason for a hardware status transition).
+  - name: related_unit_id
+    type: string
+    required: warn
+    nullable: true
+    description: A related hardware unit (e.g. for assignments/swaps).
+  - name: related_kit_id
+    type: string
+    required: warn
+    nullable: true
+    description: A related kit (e.g. for kit/roster binding changes).
+  - name: payload
+    type: object
+    required: warn
+    nullable: true
+    description: OPAQUE event-specific fields beyond the entity snapshot (validated against the entity schema at the fold; opaque here).
