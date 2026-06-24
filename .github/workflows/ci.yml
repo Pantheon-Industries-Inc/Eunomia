@@ -1,0 +1,52 @@
+name: gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # The five Python gates — IDENTICAL to Hermes (same commands, same order). The
+  # codegen-drift check is an additional step at the end of this job (OQ-4/OQ-7).
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen --all-packages
+      - run: uv run pytest
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy .
+      - run: uv run lint-imports
+      - name: codegen drift
+        run: |
+          uv run --no-project --with pyyaml python contracts/codegen/generate.py
+          git diff --exit-code contracts/_generated
+
+  # C++ / conformance — additional job. Blocking: clang-format + the off-target native
+  # build/test (which parses the same golden fixtures as the Python conformance test).
+  cpp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+      - name: clang-format (blocking)
+        run: clang-format --dry-run -Werror $(find firmware -path '*/.pio' -prune -o \( -name '*.cpp' -o -name '*.cc' -o -name '*.h' -o -name '*.hpp' \) -print)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install platformio
+        run: pipx install platformio
+      - name: native build + test (blocking)
+        run: pio test -e native -d firmware/coordinator
+      - name: camera-image checksum (stub, blocking)
+        run: python3 firmware/camera-image/checksum_gate.py
+      # Non-blocking in Run 0a (OQ-13): esp32 target build + clang-tidy.
+      - name: esp32 target build (non-blocking)
+        run: pio run -e esp32 -d firmware/coordinator
+        continue-on-error: true

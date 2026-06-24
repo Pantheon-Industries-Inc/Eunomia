@@ -1,0 +1,26 @@
+# Run 0a CODEGEN PROOF — a deliberately throwaway example.
+#
+# This ONE tiny 2-field event is the language-neutral source for the
+# "one source, three targets" codegen proof. It exists only to prove the pipeline
+# end-to-end (C++ header + Python type + JSON Schema, all agreeing on the same
+# golden fixtures) BEFORE the real contract is poured in.
+#
+# Run 0b DELETES this and replaces it with the real schemas under
+# contracts/{sidecar,operational,release,interfaces,events}/. Do not build on it.
+#
+# Field shape: name · type (int|number|string|bool) · required (hard|warn) · description.
+#   hard = corruption makes the record unsafe to ingest (validation fails)   [CONTRACT §6]
+#   warn = downstream-consumed but recoverable; surfaced in triage, non-blocking
+
+schema: eunomia-ping/v1
+title: Ping
+description: Trivial liveness event — proves the one-source-three-targets codegen pipeline.
+fields:
+  - name: seq
+    type: int
+    required: hard
+    description: Monotonic per-emitter sequence number.
+  - name: sent_unix
+    type: number
+    required: hard
+    description: Emitter wallclock at send (unix seconds).

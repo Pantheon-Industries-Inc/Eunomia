@@ -1,0 +1,49 @@
+[project]
+name = "eunomia"
+version = "0.0.0"
+description = "Eunomia monorepo — thin root meta-package. Real code lives in the workspace members."
+requires-python = ">=3.12"
+# No runtime deps: the codegen script fetches PyYAML ephemerally (`uv run --no-project
+# --with pyyaml ...`) so the shipped `eunomia_contracts` validator stays pure-stdlib.
+dependencies = []
+
+[tool.uv.workspace]
+members = ["contracts", "tooling/bench-harness"]
+
+[dependency-groups]
+# Mirrors Hermes exactly — these exact version bounds. Gates run on tool DEFAULTS:
+# there is intentionally NO [tool.ruff] and NO [tool.mypy] section anywhere.
+dev = [
+    "pytest>=8.0,<9.0",
+    "ruff>=0.10,<0.20",
+    "mypy>=1.10,<2.0",
+    "import-linter>=2.0,<3.0",
+]
+
+[tool.pytest.ini_options]
+python_files = ["test_*.py"]
+addopts = "-ra -q"
+# Hermes's ["tests", "packages"] adapted to Eunomia's top-level module layout (no
+# packages/ parent dir). Grows as Python members are added (ingest/, edge/, ...).
+testpaths = ["contracts", "tooling"]
+
+[tool.importlinter]
+# The dependency law: everything depends only on contracts/. Mirrors the Hermes
+# import-linter pattern (config in pyproject.toml; root_packages = every import name).
+root_packages = ["eunomia_contracts", "eunomia_bench_harness"]
+
+[[tool.importlinter.contracts]]
+name = "contracts spine imports nothing internal"
+type = "forbidden"
+source_modules = ["eunomia_contracts"]
+# eunomia_contracts is THE SPINE (like hermes_schema): it imports no other eunomia
+# package. Extend forbidden_modules / add independence contracts as members land.
+forbidden_modules = ["eunomia_bench_harness"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# Thin meta-package: no modules of its own.
+bypass-selection = true
