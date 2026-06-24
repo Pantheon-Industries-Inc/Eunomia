@@ -1,0 +1,26 @@
+# --- Python / uv ---
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# --- PlatformIO ---
+.pio/
+
+# --- Secrets / credentials (never committed; blocked by .claude/hooks/block-secrets.sh) ---
+.env
+*.pem
+*.key
+*.p12
+*.pfx
+credentials/
+secrets/
+
+# --- OS / editor ---
+.DS_Store
+
+# NOTE: contracts/_generated/ is intentionally COMMITTED (drift-gated) — do NOT ignore it.
+# uv.lock is intentionally committed.

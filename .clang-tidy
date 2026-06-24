@@ -1,0 +1,7 @@
+# Non-blocking in Run 0a (OQ-13) — flips to blocking when coordinator/core/ lands.
+Checks: >
+  clang-analyzer-*,
+  bugprone-*,
+  performance-*
+WarningsAsErrors: ''
+HeaderFilterRegex: 'firmware/.*'
