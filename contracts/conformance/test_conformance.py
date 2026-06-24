@@ -28,6 +28,7 @@ import jsonschema
 import pytest
 
 from eunomia_contracts import release, sidecar, sync_delta, telemetry_event
+from eunomia_contracts.interfaces import CaptureDevicePort, CoordinatorPort
 
 HERE = Path(__file__).resolve().parent
 SCHEMA_DIR = HERE.parent / "_generated" / "jsonschema"
@@ -146,3 +147,59 @@ def test_validate_matches_validate_full_hard_channel() -> None:
             assert hard_only == _validate_full(entity, obj)[0], (
                 f"{entity}/{path.name}: validate disagrees"
             )
+
+
+# ---- interface ports (Run 0c): the generated Python Protocol is implementable ----
+# The ``: CoordinatorPort = …`` / ``: CaptureDevicePort = …`` annotated assignments below are the
+# mypy STRUCTURAL-CONFORMANCE assertions (verified by the `mypy .` gate, not at runtime). The C++
+# abstract header's implementability is proven separately by `pio test -e native`
+# (firmware/coordinator/test/test_contract.cpp). The two artifacts come from ONE source
+# (interfaces/ports.iface.yaml), so the codegen-drift gate is the cross-language in-sync proof.
+
+
+class _MockCoordinator:
+    def mint_episode_id(self) -> str:
+        return "00000000-0000-4000-8000-000000000000"
+
+    def trigger(self, cameras: set[str]) -> bool:
+        return len(cameras) == 2
+
+    def read_clip_filename(self, camera: str) -> str:
+        return f"VID_{camera}.insv"
+
+    def write_sidecar(self, camera: str, record: sidecar.Sidecar) -> None: ...
+
+    def detect_drop(self) -> set[str]:
+        return set()
+
+    def flush_telemetry(self) -> None: ...
+
+
+class _MockCaptureDevice:
+    def start(self) -> None: ...
+
+    def stop(self) -> None: ...
+
+    def read_back_filename(self) -> str:
+        return "VID_00.insv"
+
+    def get_state(self) -> str:
+        return "idle"
+
+    def set_profile(self, profile: str) -> None: ...
+
+    def write_sidecar(self, record: sidecar.Sidecar) -> None: ...
+
+
+def test_coordinator_port_satisfied_by_mock() -> None:
+    port: CoordinatorPort = _MockCoordinator()  # mypy: structural conformance
+    assert port.trigger({"left", "right"}) is True
+    assert port.detect_drop() == set()
+    port.write_sidecar("left", sidecar.Sidecar())
+
+
+def test_capture_device_port_satisfied_by_mock() -> None:
+    device: CaptureDevicePort = _MockCaptureDevice()  # mypy: structural conformance
+    assert device.read_back_filename().endswith(".insv")
+    assert device.get_state() == "idle"
+    device.set_profile("3K/100")

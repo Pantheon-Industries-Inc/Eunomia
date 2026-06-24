@@ -46,8 +46,13 @@ gates-cpp-nonblocking:
 # the eunomia-contracts package it produces), then canonicalize the generated Python with the
 # project's pinned ruff (the generator emits valid Python; ruff owns the exact format). Both steps
 # are deterministic, so `make drift` is meaningful. (OQ-6 / BUILD_PLAN carry-forward #1.)
+# generate_interfaces.py is a SIBLING command (Run 0c, OQ-8): the interface ports are operation
+# SIGNATURES, not records, so they get their own mini-emitter — NOT imported by generate.py (an
+# intra-codegen import breaks mypy-from-root). One source -> two targets; the drift gate below covers
+# both since both write into contracts/_generated.
 codegen:
 	uv run --no-project --with-requirements contracts/codegen/requirements.txt python contracts/codegen/generate.py
+	uv run --no-project --with-requirements contracts/codegen/requirements.txt python contracts/codegen/generate_interfaces.py
 	uv run ruff format contracts/_generated/python
 
 drift: codegen

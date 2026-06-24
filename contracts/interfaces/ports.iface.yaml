@@ -1,0 +1,92 @@
+# Eunomia hardware-seam interfaces — the two ports as OPERATION SIGNATURES (not data records).
+#
+# AUTHORITY: docs/CONTRACT.md §1.6 / docs/SPEC.md §1.6 / docs/MODULE_MAP.md (contracts/interfaces/).
+# These are the swap-points: firmware implements a port, so a board/camera change is a new
+# implementation of the same port and nothing upstream changes (the adapt-not-rebuild seam).
+#
+# REPRESENTATION (Run 0c, LEAD-OQ-A → option C, APPROVED): this neutral signature source is consumed
+# by a SEPARATE mini-emitter (contracts/codegen/generate_interfaces.py — NOT the record generator
+# generate.py) that emits TWO targets: a C++ abstract header (pure-virtual class) + a Python Protocol.
+# There is NO JSON Schema target — an interface is not a data record. One source → two targets, kept
+# in sync by the single codegen-drift gate (they cannot drift).
+#
+# CLOSED TYPE VOCABULARY (the held boundary — annotation note on LEAD-OQ-A): an operation type MUST be
+# one of:  uuid · str · filename · ack · camera · set[camera] · record · state · profile · void.
+# The mini-emitter maps this FIXED vocabulary to each language; it is NOT a parser for an open type
+# grammar. If a future operation needs a type not in this set, that is a STOP-and-flag — raise it as an
+# OQ, do NOT extend the IDL (extending it is how (C) would silently degrade into (A) in another file).
+#
+# write_sidecar's `record` resolves to the contract's Sidecar type (OQ-7, APPROVED): the generated
+# Sidecar dataclass (Python) / const eunomia::Sidecar& (C++) — the one type-safety link between a port
+# and the record it writes. Not a dict.
+
+ports:
+  - name: CoordinatorPort
+    doc: >-
+      The fob/coordinator seam (CONTRACT §1.6 "Contract A"). Whatever the coordinator IS (an ESP32
+      today, a phone/other MCU tomorrow), it implements these. Recording depends on the on-camera
+      agent holding video mode, so the coordinator does NOT arm per take.
+    operations:
+      - name: mint_episode_id
+        params: []
+        returns: uuid
+        doc: Mint a globally-unique UUIDv4 episode_id at START, written identically to both arms (the pairing key, §7).
+      - name: trigger
+        params:
+          - { name: cameras, type: "set[camera]" }
+        returns: ack
+        doc: >-
+          Trigger the given capture devices near-simultaneously, serialized under one client (§1.7). The
+          phantom-press gate: a START only advances when both cams acked (sent==2). Returns the ack.
+      - name: read_clip_filename
+        params:
+          - { name: camera, type: camera }
+        returns: filename
+        doc: Read back the clip filename for a camera (recovered at STOP via the device, never the OSC response — §1.7).
+      - name: write_sidecar
+        params:
+          - { name: camera, type: camera }
+          - { name: record, type: record }
+        returns: void
+        doc: Write the sidecar record onto a camera's capture medium (the label rides on the card, §1.2/§2).
+      - name: detect_drop
+        params: []
+        returns: "set[camera]"
+        doc: Return the set of dropped capture devices, detected at the L2/network-association layer (never by OSC polling, §1.3).
+      - name: flush_telemetry
+        params: []
+        returns: void
+        doc: Flush queued god's-view telemetry events in the idle gap (single-radio constraint, §1.4).
+
+  - name: CaptureDevicePort
+    doc: >-
+      The camera seam (CONTRACT §1.6 "Contract B"). Whatever the camera IS, the coordinator drives it
+      through an adapter exposing these six operations. Today: OSC + a telnet shell against the X3's
+      hidcap firmware. A different camera = a different adapter implementing the same port.
+    operations:
+      - name: start
+        params: []
+        returns: void
+        doc: Start capture (directly — no per-take arm; the device is held in video mode, §1.7).
+      - name: stop
+        params: []
+        returns: void
+        doc: Stop capture.
+      - name: read_back_filename
+        params: []
+        returns: filename
+        doc: Recover the actual clip filename written by the device (via the device's own listing, §1.7).
+      - name: get_state
+        params: []
+        returns: state
+        doc: Report the device's current state token (the concrete state set is the adapter's concern).
+      - name: set_profile
+        params:
+          - { name: profile, type: profile }
+        returns: void
+        doc: Apply a capture profile descriptor (3K/100, FlowState off, audio-on — §4.2; held by the device).
+      - name: write_sidecar
+        params:
+          - { name: record, type: record }
+        returns: void
+        doc: Write the sidecar record onto the device's capture medium.

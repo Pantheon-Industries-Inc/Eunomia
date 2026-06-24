@@ -13,7 +13,10 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
+#include "eunomia_capture_device_port.h"
+#include "eunomia_coordinator_port.h"
 #include "eunomia_sidecar.h"
 #include "eunomia_telemetry_event.h"
 
@@ -89,11 +92,58 @@ void test_roundtrip() {
   TEST_ASSERT_EQUAL_STRING(in.back.c_str(), out.back.c_str());
 }
 
+// ---- interface ports (Run 0c): the generated abstract headers are implementable ----
+// Trivial implementers proving the emitted C++ ports COMPILE and are overridable (pure-virtual).
+// The interface in-sync proof itself is the codegen-drift gate (one source -> this C++ header + the
+// Python Protocol in eunomia_contracts.interfaces); this test proves the C++ side is a real
+// interface.
+namespace {
+
+class MockCoordinator : public eunomia::CoordinatorPort {
+public:
+  std::string mint_episode_id() override { return "uuid"; }
+  bool trigger(const std::vector<std::string> &cameras) override { return cameras.size() == 2; }
+  std::string read_clip_filename(const std::string &camera) override { return camera + ".insv"; }
+  void write_sidecar(const std::string &camera, const eunomia::Sidecar &record) override {
+    (void)camera;
+    (void)record;
+  }
+  std::vector<std::string> detect_drop() override { return {}; }
+  void flush_telemetry() override {}
+};
+
+class MockCaptureDevice : public eunomia::CaptureDevicePort {
+public:
+  void start() override {}
+  void stop() override {}
+  std::string read_back_filename() override { return "VID_00.insv"; }
+  std::string get_state() override { return "idle"; }
+  void set_profile(const std::string &profile) override { (void)profile; }
+  void write_sidecar(const eunomia::Sidecar &record) override { (void)record; }
+};
+
+} // namespace
+
+void test_ports_are_implementable() {
+  MockCoordinator coordinator;
+  eunomia::CoordinatorPort &coord = coordinator; // drive through the abstract base
+  TEST_ASSERT_TRUE(coord.trigger({"left", "right"}));
+  TEST_ASSERT_TRUE(coord.detect_drop().empty());
+  coord.write_sidecar("left", eunomia::Sidecar{});
+
+  MockCaptureDevice device;
+  eunomia::CaptureDevicePort &dev = device;
+  dev.start();
+  TEST_ASSERT_EQUAL_STRING("VID_00.insv", dev.read_back_filename().c_str());
+  TEST_ASSERT_EQUAL_STRING("idle", dev.get_state().c_str());
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_sidecar_valid_and_warn_parse);
   RUN_TEST(test_telemetry_valid_and_warn_parse);
   RUN_TEST(test_missing_hard_field_rejected);
   RUN_TEST(test_roundtrip);
+  RUN_TEST(test_ports_are_implementable);
   return UNITY_END();
 }
