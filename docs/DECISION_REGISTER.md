@@ -458,7 +458,83 @@ build-and-try is the agreed path. ONE question for Victor when back (non-blockin
 recording one file or did it split? (Pre-answers the file-splitting gate for free.)
 `x3_bench_test_plan.md` rewritten to this frame.
 
-NEXT: Run 0 (the Foundation phase).
+**DELIVERABLE DONE: flows/IPO HTML faithful pass** — `x3_capture_system_flows.html` (the canonical
+file; the build's older 77KB `x3_capture_system_flows.html` and `x3_walkthroughs2.html` are
+superseded). Full pass to match the new architecture: title → "Eunomia" (title + brand only, body
+component names kept per Mo); episode_id → UUIDv4 pairing key + display_id everywhere; per-take arm
+REMOVED throughout (discardd holds video mode; startCapture direct); sidecar examples now carry the
+two-axis versioning (schema + record_format_version), episode_ordinal, global_episode_seq,
+operator_id; "no async join" reframed (live-label primary, order-join fallback); capture format →
+dual-fisheye SBS + front-lens-IMU lifecycle; record_settings replaces capture_profile; QC → the two
+deterministic stages. The Eunomia/Hermes split applied to the back-of-house: Eunomia owns
+resolve+pair+QC and EMITS the release record, the heavy cleaning (audio-sync, de-fisheye) shown as the
+Hermes-side layer it FEEDS. **IPO map reoriented to inputs → process → outputs** (Mo's ask): inputs
+left, process spine middle, individual OUTPUTS broken out on the right edge (training clips · episode
+record · cost/throughput/churn · quarantine), with I→P→O zone labels + rewritten map header. **Two new
+flows integrated:** camera-overheat (stop_reason=overheat thermal stop) and fob-battery-swap
+(global_episode_seq continuity, card-is-not-the-unit). Now 21 scenarios (was 19), 27 IPO nodes, 39
+edges. Headless-rendered (jsdom): both views build, zero runtime errors.
+
+**DELIVERABLE DONE: HTML gap-fill pass #2 + fob-feedback fold (2026-06-23).** Mo asked about the
+START press-feedback flow and for a broader gap check. Done:
+- **Fob press-feedback + spam-safety** — was missing from BOTH the HTML and the spec. Added two new
+  fob screens (startidle green-idle, starting instant-ack/working/locked), split the capture
+  walkthrough's single INICIAR step into instant-ack → working (mint/sidecar/startCapture, taps
+  dropped) → GRABANDO, and added a dedicated edge-case scenario "Impatient operator spams START."
+  **Folded into the spec as new §1.8** (UI instant-ack+working+lockout, plus the core guarantee that
+  START is valid only from idle so spamming is harmless by design; enabled by the dedicated-core
+  network task + durable-ordinal-to-flash). Resolves the register's R-1 "fold into spec" note.
+- **Gap check (spec flows/edges vs HTML):** all 15 spec EDGE-* map to scenarios. Found provisioning
+  thin vs the provisioning-capture requirement + calibration absent entirely despite being a
+  first-class contract entity. **Added to provisioning** (now 8 steps): a unit-record capture step
+  (body/.insv serial, MAC, AP/Wi-Fi, IP scheme, fob_id, firmware) + a per-camera calibration step,
+  with two new console screens (provrecord, calibrate).
+- **New hardware finding (Mo, on Victor's rig 2026-06-23):** cameras **self-restarted at ~30 min** of
+  continuous recording (cause unpinned). Likely benign (real tasks are short), noted because it
+  interacts with the count-reconcile (mid-take restart = multi-clip, handled like a split). Added as
+  hardware-findings §1.8 with the thermal auto-stop + the open file-split question + a future-camera
+  REQ for uninterrupted long recording + documented segmentation.
+
+Now 24 scenarios (Edge cases 9), 52 fob/console screens, 27 IPO nodes. Headless-rendered: clean.
+
+NEXT: Mo reviews the HTML + runs Run 0a (the Foundation phase).
+
+**DELIVERABLE DONE: Run 0a Foundation — IMPLEMENTED + MERGED.** Plan-only → annotated (14 OQs +
+2 confirmations resolved) → implemented on `Mzcassim/eunomia-run-0a-plan` → PR #1 to `main`
+(github.com/Pantheon-Industries-Inc/Eunomia/pull/1) → CI green (gates + cpp jobs) → squash-merged via
+Conductor. The repo skeleton (8 top-level modules), the uv Python 3.12 workspace mirroring Hermes
+exactly (exact dep bounds, defaults-only ruff/mypy, the 5 gates in Hermes order, CI shape,
+`eunomia-<name>`/`eunomia_<name>`, `[tool.importlinter]` in root pyproject), the PlatformIO ESP32
+shell (native build+test blocking; esp32 target + clang-tidy non-blocking per OQ-13), the `.claude/`
+tree (2 hooks — format + secret-block; commit-guard omitted; reviewer + contract-conformance agents;
+codegen + gates skills; 3 rules), CI (`.github/workflows/ci.yml`), and the docs (lowercased
+`Docs/`→`docs/` as clean R100 renames + new CONTRIBUTING.md, BUILD_PLAN.md, adr/0001-architecture.md)
+all landed. **The load-bearing piece — the codegen harness — is proven:** ONE `ping` stub encoded
+once → 3 targets (C++ header / Python type / JSON Schema); `make codegen && git diff --exit-code`
+= 0 (committed `_generated/` byte-matches the generator); conformance shows all 3 targets agree on the
+same fixtures (JSON Schema 2/2 accept + 2/2 reject, Python validate() same, C++ native test parses the
+same files + round-trips). Generator slimmed to 130 lines via plain fill-templates (under the OQ-10
+~150 budget; byte-identical output). `uv sync --frozen` confirmed resolving on a clean checkout (local
+checkout-index + CI). Report-back format (real terminal tails, not claims) worked — keep it for 0b.
+
+**DECIDED — Run 0b conformance validator = OPTION C (hybrid).** The real `contracts/` will validate
+via **real JSON Schema (Draft 2020-12, the `jsonschema` library) for structure/types/enums/nesting**
++ a **thin stdlib overlay for the Eunomia-specific hard-vs-warn severity + the bespoke rules JSON
+Schema can't express** (the precedence checks, warn-only downgrades). Rationale: 0a's stdlib
+subset-checker was fine for 2 flat fields, but the real contract's nested entities + the two-axis
+versioning + nullable-typed/enum/conditional fields are exactly where a hand-rolled validator goes
+silently wrong — which violates the contract's own no-silent-mislabel invariant. Hand the hard,
+error-prone structural validation to code that's already correct; keep only the Eunomia severity logic
+in our own stdlib. The one new dependency (`jsonschema`) lives in the **validation/dev** group, NOT in
+the shipped sidecar/edge validator (which stays pure-stdlib per CONTRACT §6 — purity matters where it
+RUNS in the field, not in the CI gate). The emitted schema must be **spec-compliant Draft 2020-12** so
+the consoles can validate browser-side (ajv) against the same file. Supersedes the BUILD_PLAN.md "Carry
+into 0b" note (b). The other two 0b carry-forwards stand: pin PyYAML in a codegen dependency group
+(hermetic regeneration vs the current `--with`); the ~150-line generator budget will be pressured by
+the real schemas — STOP-and-flag (OQ-10) holds.
+
+NEXT: Run 0b — encode the real `contracts/` from CONTRACT.md through the proven harness, with the
+hybrid validator (Option C). Plan-only → annotate → implement, report-back + merge-readiness baked in.
 
 ## Already decided (this session)
 
@@ -747,3 +823,157 @@ Foundation. Each is tagged with when it should be resolved.
 
 - **C-10**: a fully-offline fob (no RTC) has unreliable absolute time + unreliable god's-view
   "when" until it syncs. Accepted; resolved when RTCs are added (model already RTC-ready).
+
+## Decisions + carry-forwards added 2026-06-24 (post-0b)
+
+**SPOT-CHECK / FAST-FEEDBACK ARCHITECTURE (DECIDED).** The fast feedback loop — managers in Mexico
+(giving operators feedback) and founders in SF spot-checking freshly-collected data — is an
+**Eunomia/Styx-side concern, NOT a Hermes/Hades critical-path concern.** Resolved design:
+
+- **Base flow (unchanged, now explicit):** SD drain → Styx (Eunomia does the operational-store
+  post-processing here: identity, pairing decisions, QC, the release record) → everything drains to
+  Hades → Hermes ingests (analytical system-of-record + the heavy cleaning/render). Styx = on-site
+  operational tier (Eunomia); Hades = analytical tier (Hermes).
+- **ONE renderer, zero drift (the decisive constraint).** Spot-check footage is rendered by the
+  **single Hermes renderer on Hades** — NOT re-rendered on Styx. Mo's drift concern is the argument:
+  two renderers (Styx + Hades) that version-drift would mean a manager approves a render that isn't
+  bit-for-bit what becomes training data — a silent correctness gap. One renderer = the manager sees
+  the canonical artifact. **This keeps DECIDED-2 intact** (heavy cleaning stays Hermes-side); spot-check
+  does NOT fork it.
+- **Priority lane (the fast loop mechanism).** Spot-check-selected episodes are **queued first and
+  greedily fast-tracked Styx→Hades ahead of the bulk drain**, rendered by Hermes, and pushed to the
+  dashboard as they complete; the bulk drain follows. Racing ONE episode through, not the whole
+  session, is what makes the loop fast.
+- **Selection = BOTH** (Q1): Eunomia auto-flags a QC sample (everything `needs_review` + a random N%
+  of clean) for retention AND a manual pull (manager/founder requests recent episodes by
+  kit/operator/task) over whatever is still present.
+- **Dashboard = hosted in Mexico** (a section of the supervisor admin console), but it is a **VIEW,
+  not a renderer**: it **prefers the rendered episode on Hades** (fast, direct, once present) and
+  **falls back to the raw footage still on Styx over the tailnet** only in the fresh window before the
+  fast-track+render completes. Accessible identically from Mexico and SF (it references Hades). Honest
+  tradeoff: in the fresh window the view is **raw fisheye over tailnet**; the clean flat render appears
+  once Hades has it (the few-minutes target). This is the price of not duplicating the renderer — and
+  given the drift concern, the right price.
+- **Retention/flush on Styx:** keep spot-check raw footage until **(a) confirmed-rendered-on-Hades AND
+  (b) an N-day Mexico-viewing window, whichever is LONGER**, then purge — bounded also by a **Styx
+  space watermark** as a safety valve (Styx is the smaller ~360TB box; video is heavy). The
+  footage_reference lifecycle (`on_card→on_styx→shipped→on_hades→purged`) already models this;
+  spot-check just **delays the purge** for selected episodes. Mo's "send a copy to Hades up front so
+  deletion is free" instinct IS the fast-track: once rendered on Hades, the Styx copy is pure cache and
+  deletes with nothing lost.
+- **LATENCY = a target with a measurement task, NOT a guarantee.** End-to-end "drained → spot-check
+  episode rendered + viewable" = drain (already done at drain-time) + the Styx→Hades fast-track hop
+  (network-bound) + the Hermes render (compute-bound on Hades/Athena, which is ordered-not-set-up).
+  **UPDATE (Victor, 2026-06-24):** a **100 Gb card is coming to Hades soon**, and the Mexico/Styx
+  uplink is hoped to be **10–100 Gb** (timing TBD). At those speeds the network hop nearly vanishes —
+  a ~1.8 GB (60s) episode transfers in **~1.5s at 10 Gb/s, ~0.15s at 100 Gb/s**. So once the uplink +
+  the Hades card are live, the loop is gated by the **Hermes render** (tens of seconds for a short
+  clip on a decent box), NOT transfer. The bottleneck flips from network to compute. **Revised target:
+  tens of seconds per spot-check episode once the hardware lands; measure and iterate** (the two
+  things to measure: the actual effective Mexico→Hades throughput, and Athena's render-vs-realtime
+  multiple — the latter now dominates). The queue-first design still applies. Until the uplink is
+  ready, a slower link makes transfer the bottleneck (at 100 Mbps a 60s episode is ~2.4 min) — so the
+  uplink readiness is the gating dependency for the fast loop being genuinely fast.
+- **OPEN (deferred, design-time):** N% sample rate; the N-day window length; the Styx watermark
+  threshold; the exact fast-track transport (priority queue mechanism); the dashboard's place within
+  the supervisor admin console; the actual measured latency (needs Athena + the Mexico link). These
+  are tuning/measurement, not architecture.
+- **SCALING — "many many episodes" makes SELECTIVITY load-bearing (Mo, 2026-06-24).** A fast uplink
+  removes the *transfer* bottleneck but does not make "render everything fast" possible. At fleet scale
+  two pressures compound even with a 10–100 Gb link: (1) **render throughput becomes the ceiling** — if
+  a session is hundreds of episodes and Athena renders each in tens of seconds, the queue *behind* the
+  priority lane backs up; spot-check stays fast ONLY because it is a **bounded sample** (the QC sample +
+  manual pulls), never the whole session. (2) **the Styx cache, not the bulk, fills the 360 TB box** —
+  a fat uplink drains the bulk quickly, so it is the spot-check *retention* (the N-day window × the
+  sample size) that pressures Styx storage. **Conclusion:** the sample-rate N%, the N-day window, and
+  the watermark are NOT just tuning — at scale they are the levers that keep both the render queue and
+  the Styx cache bounded. **Size them conservatively; "retain/render a large fraction" breaks the fast
+  loop at scale.** The loop is fast *because* it is selective.
+
+**HARDWARE UPDATE (Victor, 2026-06-24):** a **100 Gb card is coming to Hades soon** (the Hades-side
+ingress). This effectively removes the **Hades ingress** from the latency equation — once data reaches
+Hades the network is never the bottleneck there. The remaining unknown + real gate is the **Mexico
+(Styx) uplink** (transfer OUT of Styx), whose timing/availability is TBD but "ideally pretty quick."
+Net: end-to-end spot-check latency is bounded by `min(Mexico uplink, 100Gb Hades ingress)` =
+effectively the Mexico uplink + the Hermes render. If the Mexico uplink is also fat, a single
+spot-check episode is plausibly viewable in **well under a minute** (transfer in tens of seconds, render
+in seconds-to-a-minute on a decent box). **The one thing to measure when Mexico is ready: the uplink
+throughput** — Hades will not be the bottleneck. (Back-of-envelope: a 30–60s episode is ~0.9–1.8 GB
+across two cameras; the render — pair+sync+de-fisheye back-half — is the smaller variable, ~15–60s on a
+fast box.)
+
+This resolves the previously-fuzzy Styx-vs-Hades / Eunomia-vs-Hermes split for the fast loop: the
+operational tier (Eunomia/Styx) owns selection, retention, and the dashboard-as-view; the analytical
+tier (Hermes/Hades) owns the single renderer and the system-of-record. Spot-check is a prioritized
+path through the existing pipeline + a view, not new processing.
+
+**PRIOR ART — `umi-qa` already exists; Eunomia BUILDS ON it, does not reinvent it (found 2026-06-24,
+`data/umi-qa` on main, Victor + Claude).** A **FastAPI QA dashboard on port `:8090`** (the `:8090`
+"Layer 2b QA viewer" from the learnings, now seen in full). What it already does — and how it maps to
+the decisions above:
+- **Selection both ways (validates Q1):** `random_video`/`random_clip` (auto-sample) AND `api_files`
+  filtering by `date/episode/operator/camera` (manual pull). Exactly the both-modes selection decided.
+- **Render-to-bounded-cache (validates the retention idea):** transcodes clips on demand with ffmpeg
+  into `/tmp/umi-qa-clips`, capped at **20 GB** with a **24h TTL**. This IS "render-for-viewing into a
+  bounded cache that flushes periodically" — our Styx retention is the same pattern one hop earlier.
+- **Automated QA:** `health` + `detection` + `trajectory` modules run per episode.
+- **Human-review loop (validates the manager-feedback use case):** feedback, flagging, a **review
+  queue**, **per-operator scorecards**, recent-reviews — precisely the manager-gives-operators-feedback
+  workflow.
+- **Tailscale-gated, reads Hades footage:** binds `0.0.0.0` behind the tailnet (no port-forward, like
+  the R730 dashboards), reads footage from `/mnt/robot-pool/umi-office-trials` (a **Pluto / R730**
+  mount in the SF office — see the corrected hardware facts below; NOT Hades). **So the as-built runs ON Hades reading Hades-resident footage** — it is the *steady-state*
+  spot-check, operating AFTER data has landed on Hades.
+- **HARDWARE FACTS — corrected (Mo, 2026-06-24).** The `umi-qa` dashboard and the
+  `data/hades-r730-dashboard` both run against the **R730**, which is **Pluto** — a *smaller* storage
+  box in the **SF office** (`r730-storage`, Tailscale 100.119.90.17, mergerfs `/mnt/robot-pool` ~115T +
+  a sensitive ZFS 3-way mirror ~17T; storage-health dashboard on `:8080`, copy-only discipline, never
+  `--delete`). **This is NOT Hades.** **Hades** is the **datacenter** box — **~2.4 PB and being
+  expanded** — the analytical system-of-record tier. So the as-built `umi-qa` currently reads footage
+  from **Pluto** (`/mnt/robot-pool/umi-office-trials`), not Hades. (The repo folder is *named*
+  `hades-r730-dashboard` but the server it targets is the R730/Pluto — a naming artifact, not Hades.)
+  **Reconciliation for the Eunomia design:** the intended steady-state spot-check reads the **Hades**
+  render (the 2.4 PB datacenter tier), per the topology; the *prototype* happens to run against Pluto
+  today because that's where the office-trial footage currently sits. When Eunomia's pipeline lands,
+  the dashboard points at Hades for the canonical render and falls back to **Styx** (Mexico) raw for
+  the fresh window. "Athena" was a name previously recorded for a Hades-side compute box — its
+  relationship to the 2.4 PB Hades store is still to be confirmed; treat Hades = the datacenter
+  analytical tier and reconcile the specific machine names (Athena, the storage nodes) when that
+  hardware is set up.
+
+**RECONCILIATION — "hosted in Mexico" was really "reachable fast from Mexico."** The as-built `umi-qa`
+is reached identically from Mexico + SF over the tailnet and reads Hades footage in steady state — it
+does NOT physically run on Styx. Eunomia's genuinely-new contribution is the **fresh-window fast
+path**: the priority-lane fast-track Styx→Hades + the Styx-raw tailnet fallback for episodes that have
+NOT reached Hades yet (shrinking time-to-first-view below "wait for the normal drain"), plus folding
+`umi-qa`'s selection/QA/review/scorecard model into the unified Eunomia system rather than a separate
+Hades-side Flask app. So: the dashboard is **tailnet-reachable from anywhere** (Mexico + SF), reads
+**Hades** footage in steady state, and reaches back to **Styx-raw only** for fresh-window episodes.
+The "hosted in Mexico" instinct is satisfied by tailnet reachability — it need not physically run on
+Styx. **Build-forward: adopt `umi-qa`'s proven model (sampling + bounded clip cache + review queue +
+scorecards); add the fast-track lane + fresh-window fallback; unify it rather than leaving it a
+separate app.**
+
+**CARRY-FORWARD — sidecar contract shape vs the rig writer (from 0b).** Run 0b encoded the sidecar
+with **nested clean-namespacing** (`identity`/`timing`/`provenance`/`outcome`/`files`) per CONTRACT §2,
+overriding the as-built `pantheon-x3-sidecar/v2` which scattered provenance/outcome under
+identity/top-level and used a zero-padded string `seq` + a top-level camera-clock timestamp. CONTRACT
+won (clean namespacing; `seq` is int; no poison camera-clock timestamp). **Consequence:** the contract
+sidecar shape now DIFFERS from what Victor's current discardd writer emits — the current rig output
+will NOT validate as-is. **The firmware run (and/or 0c) must either (a) update the coordinator writer
+to emit the nested contract shape, or (b) have ingest tolerate both the as-built flat shape and the
+contract nested shape.** Log so it's not a surprise when firmware lands.
+
+**CARRY-FORWARD — other 0b items (documentation, not 0a/0b fixes):**
+- **Release hard/warn split** is currently implicit in the 0b schema (the agent's interpretation: hard
+  = the join/identity/time keys Hermes needs; rest warn/nullable; `void⇒void_reason` hard). **Document
+  this split back into CONTRACT §4** so it's explicit, not just encoded.
+- **Telemetry per-event required fields** are modeled warn-optional in 0b (only the `event`
+  discriminator is hard). **Future tightening** if per-event validation strictness is needed (would add
+  N conditional rules — deliberately deferred to keep the generator lean).
+- **Generator budget / interfaces:** 0b's generator is 358 lines (more field-types + one bounded
+  conditional + shallow nesting — NOT a framework; real cross-field logic hand-written in `_semantics`,
+  the OQ-3 boundary held). **0c's interface (operation-signature) shape is the real codegen
+  STOP-and-flag line** — signatures don't fit the field-DSL at all; reconsider the codegen approach
+  there. Per-emitter split (OQ-8) was NOT done (it breaks mypy-from-root under the no-config gate), so
+  the generator stays a single sectioned file.

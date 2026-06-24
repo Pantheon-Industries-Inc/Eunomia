@@ -127,9 +127,9 @@ The data makes one WAN hop and otherwise stays local to the box that owns its st
                                                                                           Hades-LOCAL pool, not Styx.
 ```
 
-- **Styx (on-site):** the only work that *must* happen at the edge — get bytes off cards safely, verify the copy, route by the on-card ledger, quarantine bad cards. It produces a clean, verified raw pool and **nothing derived**. Keeping it dumb keeps the remote site reliable and easy to operate. Output contract: "these cards arrived intact and correctly attributed."
-- **SHIP (Styx → Hades):** the full raw pool (~200 GB/session) is transferred wholesale to Hades. **No Styx-side filtering for now** — everything ships; a triage/filter step on Styx can be added later to cut transfer volume (open item §6.7). This is the one WAN hop.
-- **Hades (SF):** all post-processing runs here as the `PROC` stage — pairing, audio-correlation sync, QC/quality-block computation, derived artifacts. This is "part of what we are building now," modeled as a **distinct stage between drain and ingest**, because pairing/sync/QC are pre-ingest transforms on raw, not the platform's job.
+- **Styx (on-site):** the only work that *must* happen at the edge — get bytes off cards safely, verify the copy, route by the on-card ledger, quarantine bad cards. It produces a clean, verified raw pool and **renders nothing**. Keeping it free of derived/render work keeps the remote site reliable and easy to operate. Output contract: "these cards arrived intact and correctly attributed." *(Two non-rendering exceptions, both additive and both still "no compute": Styx (a) runs the Eunomia operational-store post-processing — identity/pairing/QC/the release record, which is metadata work, not video render — and (b) **retains a selected subset of raw episodes longer as a spot-check cache and hosts the spot-check dashboard as a view**, never a renderer — see §1.9.)*
+- **SHIP (Styx → Hades):** the full raw pool (~200 GB/session) is transferred wholesale to Hades. **No Styx-side filtering for now** — everything ships; a triage/filter step on Styx can be added later to cut transfer volume (open item §6.7). This is the one WAN hop. *(Spot-check-selected episodes take a **priority lane** on this hop — fast-tracked ahead of the bulk — see §1.9.)*
+- **Hades (SF):** all post-processing runs here as the `PROC` stage — pairing, audio-correlation sync, QC/quality-block computation, derived artifacts. This is "part of what we are building now," modeled as a **distinct stage between drain and ingest**, because pairing/sync/QC are pre-ingest transforms on raw, not the platform's job. **This is the single renderer** — spot-check footage is rendered here too, never re-rendered on Styx (§1.9), so there is exactly one render path and no version drift.
 - **Hermes (on Hades):** the data platform ingests from the **Hades-local** pool after PROC, never across the wire from Styx. Matches the existing Option-C deploy flow (local dev → GitHub → Hades/Athena pulls).
 
 ### 1.6 Modularity — the hardware is an implementation detail behind two contracts
@@ -173,6 +173,89 @@ There is a **~3 s gap** between pressing START and recording actually beginning 
 - **The core layer (guarantees it, regardless of input).** Even if taps get through — fast taps before lockout, queued touch events, a held or spamming press, a flaky screen — the coordinator **state machine never acts on a second trigger mid-sequence**: a START is valid **only from `idle`**; from `arming`/`starting`/`recording`/`stopping`, further inputs are dropped or coalesced, never double-fired. **Spamming the screen is harmless by design, not merely hidden by the UI.** This is the non-negotiable guarantee; the UI is the comfort on top of it.
 
 This is enabled by the fob running its **network work on a dedicated core** so the UI never stalls while OSC is in flight (the instant touch-ack is only possible because the UI thread isn't blocked), and by writing the **durable ordinal to flash before the counter advances** so a crash/swap can't lose or reuse a number. Both layers live entirely in the coordinator's UI + core (they validate the swappable-UI seam — a different screen reimplements the UI layer against the same core guarantee). See the "impatient operator spams START" walkthrough for the step-by-step.
+
+### 1.9 Spot-check — the fast feedback loop (and what it pins down about where work runs)
+
+There is a **fast-feedback requirement** that sits alongside the bulk pipeline: managers in Mexico use
+freshly-collected episodes to give operators feedback **the same day**, and founders/people in SF want
+to spot-check new data **as soon after the SD drain as possible**. The bulk path (drain → ship
+everything → PROC → ingest) is the *thorough* path; spot-check is the *fast* path, and it is
+deliberately a **prioritized lane through the existing pipeline plus a view**, not a second processing
+stack.
+
+The shape, and the single constraint that determines it:
+
+- **One renderer, never two — this is the load-bearing decision.** Spot-check footage is rendered by
+  the **single Hermes renderer on Hades**, the same one that produces training data. It is **not**
+  re-rendered on Styx. The reason is drift: two renderers (an on-site one and the Hades one) that fall
+  out of version-sync would mean a manager signs off on a render that is *not* bit-for-bit what becomes
+  the training clip — a silent correctness gap, exactly the class of error this whole system is built
+  to avoid. One renderer means the manager sees the canonical artifact. (This keeps the
+  §3.6 / cleaning-layer boundary intact — heavy render stays Hades-side; spot-check does not fork it.)
+- **The priority lane is the speed mechanism.** Spot-check-selected episodes are **queued first and
+  greedily fast-tracked Styx→Hades ahead of the bulk drain**, rendered by Hermes, and surfaced to the
+  dashboard as each completes; the bulk follows. The loop is fast because it races **one** episode
+  through, not the whole session.
+- **Selection is both automatic and manual.** Eunomia auto-flags a QC sample (everything that lands
+  `needs_review`, plus a random N% of clean episodes) and retains it; and a manager/founder can
+  **manually pull** recent episodes by kit/operator/task from whatever is still present.
+- **The dashboard already exists in prototype — Eunomia builds on it.** Victor's `umi-qa` (a FastAPI
+  QA dashboard on port `:8090`) already does the spot-check job: it **samples** both ways (random
+  auto-sample *and* filter by date/operator/episode/camera — the manual pull), **transcodes clips on
+  demand into a bounded cache** (`/tmp`, 20 GB cap, 24h TTL — i.e. render-to-cache-then-flush, the same
+  retention pattern one hop earlier), runs **automated QA** (health/detection/trajectory), and carries
+  a full **human-review loop** (feedback, flagging, a review queue, and **per-operator scorecards** —
+  exactly the manager-gives-operators-feedback workflow). It is **Tailscale-gated** (binds behind the
+  tailnet, no port-forward) and reads footage from **Pluto** — the smaller R730 storage box in the SF
+  office (NOT Hades; the prototype reads office-trial footage where it currently sits). So the as-built
+  is the *steady-state* spot-check pattern: it runs against already-landed footage, reachable
+  identically from Mexico and SF over the tailnet. In the Eunomia topology the canonical render lives
+  on **Hades** (the ~2.4 PB datacenter tier); the dashboard prefers that and falls back to Styx-raw for
+  the fresh window. Eunomia adopts this proven model rather than reinventing it.
+- **What Eunomia adds is the fresh-window fast path.** The dashboard is **tailnet-reachable from
+  anywhere** (Mexico + SF) and reads the **Hades** render in steady state — it does *not* need to
+  physically run on Styx ("hosted in Mexico" really means "reachable fast from Mexico," which the
+  tailnet already gives). The genuinely-new piece is: for an episode still in the **fresh window**
+  (drained, fast-tracked, but not yet rendered on Hades), the dashboard **falls back to the raw
+  footage still on Styx over the tailnet** — shrinking time-to-first-view below "wait for the normal
+  drain." Steady state: prefer the Hades render. Fresh window: raw fisheye from Styx. One renderer
+  (Hades) — the reviewer always eventually sees the canonical artifact, never a drifted re-render.
+- **Retention + flush on Styx.** Styx is the smaller box (~360 TB) and video is heavy, so the
+  spot-check raw footage is a **cache, not a home**. An episode's spot-check footage is kept on Styx
+  until **(a) it is confirmed rendered on Hades AND (b) an N-day Mexico-viewing window has elapsed,
+  whichever is longer**, then purged — with a **Styx space watermark** as a safety valve that flushes
+  the oldest spot-check footage early if the box runs low. This is not a new mechanism: the
+  footage-reference lifecycle (`on_card → on_styx → shipped → on_hades → purged`) already models it;
+  spot-check simply **delays the purge** for selected episodes. Once an episode is rendered on Hades,
+  its Styx copy is pure cache and deletes with nothing lost.
+
+**Latency is a target to be measured, not a guarantee — and with a fast uplink it is render-bound,
+not transfer-bound.** End-to-end "drained → spot-check episode rendered and viewable" is the drain
+(already complete at drain time) + the Styx→Hades fast-track hop + the Hermes render. Victor reports a
+**100 Gb card landing at Hades soon** and a hoped-for **10–100 Gb Mexico (Styx) uplink** (timing TBD).
+At those speeds the transfer nearly vanishes from the budget — a ~1.8 GB (60s) episode is ~1.5s at
+10 Gb/s, ~0.15s at 100 Gb/s — so once the uplink is live the loop is gated by the **render** (tens of
+seconds for a short clip on a decent box), not the network. The thing to measure first is therefore
+Athena's render-vs-realtime multiple, not the link. Until the Styx uplink is ready, a slower link
+makes transfer the bottleneck (≈2.4 min for a 60s episode at 100 Mbps), so **uplink readiness is the
+gating dependency** for the loop being genuinely fast. Working target: **a single spot-check episode
+viewable within tens of seconds once the hardware lands; measure and iterate.**
+
+**At scale, selectivity is what keeps it fast.** A fast uplink removes the transfer bottleneck but
+does *not* make "render everything fast" possible — with many hundreds of episodes per session, the
+render queue behind the priority lane is the ceiling, and the spot-check *cache* (not the bulk) is what
+pressures the smaller 360 TB Styx box. The loop stays fast and Styx stays bounded **only because
+spot-check is a bounded sample** (the QC sample + manual pulls), never the whole session. So the sample
+rate, the N-day window, and the watermark are not mere tuning at scale — they are the levers that keep
+the render queue and the Styx cache bounded. Size them conservatively.
+
+**What this pins down.** Spot-check resolves the previously-fuzzy line between the tiers: the
+**operational tier (Eunomia, on Styx)** owns *selection, retention, and the dashboard-as-view*; the
+**analytical tier (Hermes, on Hades)** owns *the single renderer and the system of record*. The fast
+loop is a prioritized path through the one pipeline plus a viewer — it adds no rendering to the
+operational tier and introduces no second copy of the render code. (Tuning left open: the sample rate
+N%, the N-day window, the watermark threshold, the fast-track transport, and the dashboard's exact
+placement in the admin console — all design-time, not architecture.)
 
 
 ---
