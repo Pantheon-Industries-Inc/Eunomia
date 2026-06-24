@@ -1,0 +1,163 @@
+"""@MSG@
+
+The pure-stdlib SHIPPED validation overlay (CONTRACT §6). HAND-WRITTEN, vendored verbatim
+into the generated package by contracts/codegen/generate.py — edit the source template
+``contracts/codegen/templates/semantics.py.tmpl``, never this copy.
+
+OQ-3 boundary: the per-entity modules carry GENERATED DATA tables (hard/warn field lists, enum
+value-sets, non-empty + nullable paths, the one conditional-presence rule), bundled into a
+``Tables``. This module is the fixed, hand-written ENGINE that applies those tables (the
+hard-vs-warn severity split) PLUS the bespoke cross-field LOGIC rules JSON Schema cannot express.
+No rule-DSL is generated into here — real logic stays hand-written (the generator-complexity
+STOP-and-flag boundary).
+
+Runs cam-side / in ingest / on the edge with NO third-party deps. The dev/CI hybrid conformance
+validator (contracts/conformance/) is a separate thing: it uses the real ``jsonschema`` library
+for the structural layer and reuses THIS module's tables + cross-field rules for parity.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class Tables:
+    """The generated, per-entity DATA an entity module hands the engine (OQ-3)."""
+
+    # Each field spec is (json_path, json_type); json_path is dotted for one nesting level.
+    hard: list = field(default_factory=list)
+    warn: list = field(default_factory=list)
+    enums: dict = field(default_factory=dict)  # json_path -> [allowed values]
+    non_empty: list = field(default_factory=list)  # json_paths that must be non-empty strings
+    nullable: list = field(default_factory=list)  # json_paths where an explicit null is OK
+    cond_pattern: str = ""  # the v1-extra conditional: a `schema` regex (OQ-4)
+    cond_fields: list = field(default_factory=list)  # (json_path, json_type) hard iff schema matches
+
+
+def _typecheck(value: object, json_type: str) -> bool:
+    if json_type == "int":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if json_type == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if json_type == "string":
+        return isinstance(value, str)
+    if json_type == "bool":
+        return isinstance(value, bool)
+    if json_type == "object":
+        return isinstance(value, dict)
+    if json_type == "array":
+        return isinstance(value, list)
+    return False
+
+
+def _descend(obj: dict, path: str) -> "tuple[bool, object]":
+    """Navigate a dotted path through nested dicts. Returns (found, value)."""
+    cur: object = obj
+    for part in path.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return (False, None)
+        cur = cur[part]
+    return (True, cur)
+
+
+def _ancestor_missing(path: str, missing_objs: set[str]) -> bool:
+    parts = path.split(".")
+    for i in range(1, len(parts)):
+        if ".".join(parts[:i]) in missing_objs:
+            return True
+    return False
+
+
+def _check_value(path: str, value: object, json_type: str, t: Tables) -> "list[str]":
+    """Type + enum + non-empty findings for a present value (severity-agnostic)."""
+    if value is None and path in t.nullable:
+        return []
+    out: list[str] = []
+    if not _typecheck(value, json_type):
+        out.append(f"{path} must be {json_type}")
+        return out
+    if path in t.enums and value not in t.enums[path]:
+        out.append(f"{path} not one of {t.enums[path]}")
+    if path in t.non_empty and isinstance(value, str) and not value.strip():
+        out.append(f"{path} is empty")
+    return out
+
+
+def _structural(obj: object, t: Tables) -> "tuple[list[str], list[str]]":
+    errors: list[str] = []
+    warnings: list[str] = []
+    if not isinstance(obj, dict):
+        return (["record is not a JSON object"], warnings)
+
+    # The v1-extra conditional set is HARD only when `schema` matches (OQ-4).
+    effective_hard = list(t.hard)
+    if t.cond_pattern and t.cond_fields:
+        schema_val = obj.get("schema")
+        if isinstance(schema_val, str) and re.match(t.cond_pattern, schema_val):
+            effective_hard = effective_hard + list(t.cond_fields)
+
+    missing_objs: set[str] = set()
+    # Shallowest paths first so a missing parent object suppresses its children.
+    for path, json_type in sorted(effective_hard, key=lambda f: f[0].count(".")):
+        if _ancestor_missing(path, missing_objs):
+            continue
+        found, value = _descend(obj, path)
+        if not found:
+            errors.append(f"hard: missing {path}")
+            if json_type == "object":
+                missing_objs.add(path)
+            continue
+        errors.extend(f"hard: {m}" for m in _check_value(path, value, json_type, t))
+
+    for path, json_type in sorted(t.warn, key=lambda f: f[0].count(".")):
+        if _ancestor_missing(path, missing_objs):
+            continue
+        found, value = _descend(obj, path)
+        if not found:
+            warnings.append(f"warn: missing {path}")
+            if json_type == "object":
+                missing_objs.add(path)
+            continue
+        warnings.extend(f"warn: {m}" for m in _check_value(path, value, json_type, t))
+    return (errors, warnings)
+
+
+# ---- hand-written cross-field LOGIC rules JSON Schema cannot express (OQ-3) ----
+# Each returns a list of HARD error strings. Keyed by schema id below.
+
+
+def _release_void_requires_reason(obj: dict) -> "list[str]":
+    """A voided episode MUST say why (CONTRACT §4.1 "void+void_reason")."""
+    if obj.get("void") is True:
+        reason = obj.get("void_reason")
+        if not (isinstance(reason, str) and reason.strip()):
+            return ["hard: void==true requires a non-empty void_reason"]
+    return []
+
+
+_CROSS_FIELD_HARD: dict = {
+    "eunomia-release/v1": [_release_void_requires_reason],
+}
+
+
+def _cross_field_hard(obj: object, schema_id: str) -> "list[str]":
+    if not isinstance(obj, dict):
+        return []
+    out: list[str] = []
+    for rule in _CROSS_FIELD_HARD.get(schema_id, []):
+        out.extend(rule(obj))
+    return out
+
+
+def validate_full(obj: object, t: Tables, schema_id: str) -> "tuple[list[str], list[str]]":
+    """Return (hard_errors, warnings). hard_errors invalidate the record (CONTRACT §6)."""
+    errors, warnings = _structural(obj, t)
+    errors.extend(_cross_field_hard(obj, schema_id))
+    return (errors, warnings)
+
+
+def validate(obj: object, t: Tables, schema_id: str) -> "list[str]":
+    """Return HARD errors only — the field-side go/no-go (empty == safe to ingest)."""
+    return validate_full(obj, t, schema_id)[0]

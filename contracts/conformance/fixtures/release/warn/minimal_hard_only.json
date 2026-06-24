@@ -1,0 +1,13 @@
+{
+  "episode_id": "550e8400-e29b-41d4-a716-446655440000",
+  "global_episode_seq": 1009,
+  "ingested_at": "2026-06-24T18:00:00Z",
+  "kit_id": "kit_07",
+  "recorded_at": "2026-06-24T10:00:00Z",
+  "schema": "eunomia-release/v1",
+  "session_id": "s",
+  "side": "right",
+  "station_id": "5",
+  "task_id": "t",
+  "time_confidence": "unsynced_monotonic"
+}

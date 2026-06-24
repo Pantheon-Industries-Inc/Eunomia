@@ -1,0 +1,10 @@
+{
+  "as_of": null,
+  "delta_seq": 6,
+  "emitted_at": "2026-06-24T10:05:00Z",
+  "entity": "hardware_unit",
+  "entity_id": "unit_42",
+  "op": "delete",
+  "payload": null,
+  "schema": "eunomia-sync-delta/v1"
+}

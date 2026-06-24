@@ -23,9 +23,9 @@ jobs:
       - run: uv run mypy .
       - run: uv run lint-imports
       - name: codegen drift
-        run: |
-          uv run --no-project --with pyyaml python contracts/codegen/generate.py
-          git diff --exit-code contracts/_generated
+        # `make drift` == `make codegen` (generate under pinned codegen deps + ruff-format the
+        # generated Python) then assert no diff. Single source of truth, local == CI (OQ-6).
+        run: make drift
 
   # C++ / conformance — additional job. Blocking: clang-format + the off-target native
   # build/test (which parses the same golden fixtures as the Python conformance test).
@@ -36,7 +36,7 @@ jobs:
       - name: install clang-format
         run: sudo apt-get update && sudo apt-get install -y clang-format
       - name: clang-format (blocking)
-        run: clang-format --dry-run -Werror $(find firmware -path '*/.pio' -prune -o \( -name '*.cpp' -o -name '*.cc' -o -name '*.h' -o -name '*.hpp' \) -print)
+        run: clang-format --dry-run -Werror --style=file $(find firmware -path '*/.pio' -prune -o \( -name '*.cpp' -o -name '*.cc' -o -name '*.h' -o -name '*.hpp' \) -print)
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

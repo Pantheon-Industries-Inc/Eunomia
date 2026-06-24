@@ -1,0 +1,6 @@
+# Pinned, hermetic codegen dependencies (Run 0b, BUILD_PLAN carry-forward #1 / OQ-6).
+# `make codegen` runs the generator with `uv run --no-project --with-requirements <this file>`,
+# replacing the 0a ephemeral `--with pyyaml`. --no-project is required (codegen produces the tree
+# that IS the eunomia-contracts package), and --no-project ignores [dependency-groups], so the pin
+# lives here. The shipped `eunomia_contracts` validator stays pure-stdlib (CONTRACT §6).
+pyyaml>=6.0,<7.0

@@ -1,0 +1,8 @@
+{
+  "delta_seq": 7,
+  "emitted_at": "2026-06-24T10:06:00Z",
+  "entity": "person",
+  "entity_id": "p_99",
+  "op": "upsert",
+  "schema": "eunomia-sync-delta/v1"
+}

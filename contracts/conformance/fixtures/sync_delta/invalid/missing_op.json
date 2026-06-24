@@ -1,0 +1,7 @@
+{
+  "delta_seq": 8,
+  "emitted_at": "x",
+  "entity": "episode",
+  "entity_id": "e1",
+  "schema": "eunomia-sync-delta/v1"
+}

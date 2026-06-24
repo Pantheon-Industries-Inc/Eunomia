@@ -1,0 +1,8 @@
+{
+  "delta_seq": 10,
+  "emitted_at": "x",
+  "entity": "",
+  "entity_id": "e1",
+  "op": "upsert",
+  "schema": "eunomia-sync-delta/v1"
+}

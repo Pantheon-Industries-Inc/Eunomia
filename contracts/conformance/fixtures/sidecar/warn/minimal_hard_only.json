@@ -1,0 +1,22 @@
+{
+  "files": {
+    "back": "VID.insv"
+  },
+  "global_episode_seq": 100,
+  "identity": {
+    "camera_id": "c",
+    "episode_id": "550e8400-e29b-41d4-a716-446655440000",
+    "kit_id": "kit_07",
+    "operator_id": "o",
+    "prompt": "p",
+    "rotation_id": "r",
+    "session_id": "s",
+    "side": "right",
+    "station_id": "5",
+    "task_id": "t",
+    "task_name": "n",
+    "task_source": "none"
+  },
+  "schema": "eunomia-sidecar/v1",
+  "seq": 7
+}

@@ -1,0 +1,8 @@
+{
+  "emitted_at": "2026-06-24T10:00:00Z",
+  "event": "started",
+  "kit_id": "kit_07",
+  "ms": 120345,
+  "schema": "eunomia-telemetry-event/v1",
+  "sent": "two"
+}
