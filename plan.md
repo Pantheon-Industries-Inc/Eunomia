@@ -1,460 +1,413 @@
-# Run 0b — `contracts/`: encode the real Eunomia contract (PLAN)
+# Run 0c (plan-only) — `contracts/operational/` + `contracts/interfaces/`
 
-> **Status: APPROVED — implementing.** All eight Open Questions are resolved (§9, with Mo's
-> annotations folded in); OQ-3's data-vs-logic boundary is sharpened in §5.2/§6/§9. Authority for
-> every field is `docs/CONTRACT.md`; where it and any other doc disagree, CONTRACT wins. (This
-> replaces the merged Run 0a plan, which lives in git history at `ea31f9d`.)
+> **Status: APPROVED — split confirmed; implementing 0c (interfaces) only.** All open questions are
+> resolved with Mo's annotations: **LEAD-OQ-A → (C)** the separate `generate_interfaces.py`
+> mini-emitter (closed type vocabulary held — a type outside the set is a STOP-and-flag, not an IDL
+> extension); **LEAD-OQ-B → SPLIT, interfaces-first** — **0c = interfaces** (this run: the mini-emitter
+> + `ports.iface.yaml` + the two generated artifacts + conformance/compile/type-check proof);
+> **0d = the operational model** (held; OQ-3/4/5/6/9/10/11/12 pre-approved above carry into 0d's plan).
+> **OQ-7 → the generated `Sidecar` / `const eunomia::Sidecar&` for `write_sidecar`'s record param
+> (not dict). OQ-8 → sibling `make codegen` commands; single drift gate covers both.**
+> (This replaces the merged Run 0b plan, which lives in git history at `201c0d5`.)
 >
-> **Report-back scope (Mo's note):** the report's faithfulness check covers the **0b-scoped sections
-> only** — §2 sidecar, §4 release, §5 versioning, and events — **not** §3 operational or the
-> interfaces (those are 0c). Everything else in the report-back spec stands as written, including the
-> merge-readiness evidence.
+> Authority read for this plan: `docs/CONTRACT.md` §3 (operational model) + §1.6/§7 (seams, episode-id),
+> `docs/DECISION_REGISTER.md` (B-8, B-9, A-2, C-9..C-12, the 2026-06-24 spot-check block, the 0b
+> carry-forwards), `docs/SPEC.md` §1.6/§1.7 (the two ports), §3.2–§3.6; and the as-built 0b machinery
+> (`contracts/codegen/generate.py`, the field-DSL YAMLs, `_semantics.py`, `test_conformance.py`).
 
 ---
 
 ## 1. Summary
 
-**What 0b produces:** the real Eunomia data contract poured through the 0a codegen + conformance
-harness — replacing the throwaway `ping` proof. Concretely, the *record-shaped* contract surface:
+**What this run produces** (the two areas 0b deferred):
 
-- `contracts/sidecar/` — the on-card `eunomia-sidecar` record (CONTRACT §2), with the hard-vs-warn
-  split, the only-two non-empty fields (`kit_id`+`side`), the v1-extra conditional, and the two-axis
-  versioning fields.
-- `contracts/release/` — the release-metadata record Hermes ingests (§4) — **the external contract
-  surface** Hermes pins a version of.
-- `contracts/events/` — the god's-view telemetry event(s) + the operational-sync delta (§3 events /
-  §6). The `ping` proof graduates into a real telemetry event here.
-- `contracts/` **two-axis versioning** (§5) made first-class: `schema` (string, parser-facing,
-  drives conditional presence) ⊥ `record_format_version` (int, writer-owned, forensic).
-- **The hybrid conformance validator** (the locked Option C): real `jsonschema` Draft 2020-12 for
-  the structural layer + a pure-stdlib overlay for the hard-vs-warn severity split and the
-  Eunomia-specific semantics. Wired into the conformance gate.
-- **Hermetic codegen:** PyYAML pinned in a codegen dependency group (retires the 0a ephemeral
-  `uv run --with pyyaml`).
-- **Conformance extended, not replaced:** `valid/` + `invalid/` + **`warn/`** fixtures per entity;
-  all three targets (JSON Schema via `jsonschema`, the Python type+validator, the C++ header) proven
-  to agree; the codegen-drift gate still green on the committed tree.
+- **`contracts/operational/`** — the event-sourced operational model (CONTRACT §3): nine entity
+  schemas (`person`, `hardware_unit`, `kit`, `calibration`, `task`, `session`, `capture_stack`,
+  `footage_reference`, `episode`) as **record-shaped schemas reusing the 0b field-DSL + hybrid
+  validator unchanged**, plus the append-only **event/lifecycle** representation, plus the §3 rules
+  (identity precedence §3.3, crosswalk/retargeting §3.4, task precedence §3.5, the dual-signal join
+  §3.6) encoded as **typed fields + documentation** (and `_semantics` overlay only where a rule is a
+  single-record cross-field check) — **not** as an enforced join. As-of resolution is encoded
+  *temporally* (validity ranges + event `as_of`); the resolver/materializer is a later run.
+- **`contracts/interfaces/`** — `CoordinatorPort` + `CaptureDevicePort` as explicit interface
+  definitions emitted to a **C++ abstract header + a Python `Protocol`**, per the representation chosen
+  in **LEAD-OQ-A**.
+- **Conformance** — fixtures (valid/invalid/warn[/semantic_invalid]) for every operational entity
+  through the same hybrid validator; an interface in-sync proof; the drift gate stays green.
 
-**What 0b defers (see §2 — recommended split, and §10):** the full **operational model** (§3: the 9
-event-sourced entities, as-of resolution, identity-precedence *logic*, crosswalk/serial-retargeting,
-the dual-signal join *rules-as-logic*) and the **interfaces** (`CoordinatorPort` / `CaptureDevicePort`
-— a different, non-record shape) are recommended to move to **Run 0c**. 0b encodes everything the
-coordinator *writes* and Hermes *ingests*; 0c encodes the operational *store* and the hardware *seams*.
-
-**What 0b never does:** any module logic (no firmware state machine, no ingest/identity/join/QC
-implementation, no edge/console code), no substrate scripts, no web stack, no Hermes-side cleaning
-code, and it does **not** pick the Hermes contract-consumption mechanism.
+**What it defers** (restated in §10): no module logic (no firmware state machine, no
+ingest/identity/join/QC/edge/console code); the join/precedence/as-of **implementation**; the
+spot-check tuning values (N%, N-day, watermark); the firmware-vs-ingest resolution of the
+sidecar-shape divergence; how Hermes consumes the contract.
 
 ---
 
-## 2. ⭐ FIRST OPEN QUESTION — ONE run, or split 0b / 0c?
+## 2. ⭐ The two lead open questions (assess + recommend; Mo decides at annotation)
 
-Encoding all of §2–§6 **plus** the interfaces in a single run is a lot, and it is exactly the lot
-that pressures the generator (requirement 3). My honest assessment is to **split**, and here is why.
+### LEAD-OQ-A — How does the generator represent an INTERFACE?
 
-**The two halves separate cleanly by *shape*, *urgency*, and *generator cost*:**
+`CoordinatorPort`/`CaptureDevicePort` are **operation signatures** (`mint_episode_id() -> uuid`,
+`trigger(cameras) -> ack`, `read_clip_filename(camera) -> str`, `write_sidecar(camera, record)`,
+`detect_drop() -> set[camera]`, `flush_telemetry()`; and start/stop/read-filename/get-state/set-profile/
+write-sidecar for the device). They **do not fit the field-list DSL** the 0b generator uses for records
+— there is no hard/warn field surface, no JSON Schema target (an interface is not a data record), and
+the artifacts are kind-different (a C++ pure-virtual class vs a Python `Protocol`). The 0b carry-forward
+flagged this verbatim: *"0c's interface (operation-signature) shape is the real codegen STOP-and-flag
+line — signatures don't fit the field-DSL at all; reconsider the codegen approach there."*
 
-| | **0b (recommend NOW)** | **0c (recommend NEXT)** |
-|---|---|---|
-| **Areas** | sidecar §2, release §4, events §3/§6, versioning §5, the hybrid validator, PyYAML pin, conformance | operational model §3 (9 entities, events, as-of), identity-precedence/crosswalk/join *logic*, interfaces |
-| **Shape** | **records** — flat-ish JSON objects with fields. Fits the 0a field-list DSL with bounded extensions (enum, nullable, array, `minLength`, one conditional rule). | **a system model + operation signatures** — event-sourced entities with temporal resolution, *and* interfaces (method signatures, not data). A genuinely different shape than the record DSL. |
-| **Urgency** | The coordinator **writes** the sidecar and **emits** events *now*; Hermes **pins** release *now*. The live external surface. | Consumed by ingest/identity/join + firmware ports — all **later runs** (Run B+). Not on any current critical path. |
-| **Generator cost** | "more field-types" + **one** bounded conditional rule. Stays near the budget. | nesting/recursion for entity graphs + an interface-description format that does **not** fall out of the field DSL — the most likely STOP-and-flag trigger. |
-| **Reviewability** | One coherent diff: "does the on-card/emitted/ingested record match the doc, and does hard-vs-warn work?" | One coherent diff: "is the operational store + the seams modeled right?" |
+| Option | What it is | Pro | Con |
+|---|---|---|---|
+| **(A)** Extend `generate.py` with a signature IDL | Second source shape + signature emitters inside the record generator | Interfaces stay "generated, single-source" like records | Grows the **record** generator into a second type system — **exactly the STOP-and-flag line**. Disfavored. |
+| **(B)** Hand-write both artifacts | A C++ abstract header + a Python `Protocol`, by hand, no codegen | Zero generator complexity; honest that the field-DSL doesn't fit; interfaces are small + rarely change | **No drift guard** — the two language artifacts are kept in sync by discipline only; they live outside the "one source → targets" model (silent cross-language drift is the cardinal sin this whole spine exists to prevent) |
+| **(C)** A **separate, tiny interface mini-emitter** | One small signature-YAML → a **dedicated** emitter (NOT `generate.py`) → C++ abstract header + Python `Protocol`, both committed + drift-gated | Preserves the project's defining no-silent-drift property for the interface artifacts; **honors STOP-and-flag as written** (it guards `generate.py` from becoming a framework — a *separate* bounded emitter for a genuinely different artifact does not touch the record generator); signature surface is tiny + fixed (2 ports, ~12 ops) so the emitter stays ~80–120 lines | It *is* new generator code (one more emitter) and a second source shape exists in the tree — but **isolated**, not entangled with records |
 
-**Why the seam is real (not arbitrary):** the release record (§4) is the *frozen join* of sidecar +
-operational. But release defines its **own** shape — denormalized frozen fields + **id references**
-(`capture_stack_id`, `calibration_id`, `person_id`, `session_id`). It does **not** need the
-operational entity *schemas* to exist in order to define itself; it needs only the id-reference
-fields. So 0b can encode release's shape fully, and 0c encodes the entities those ids resolve to.
-Identity precedence, crosswalk, and the dual-signal join are **join-time, multi-entity logic** — they
-are not validatable on a single record anyway, so they belong with the operational model in 0c (as
-typed entities + documented rules; the *implementation* that runs at ingest is a still-later run, per
-the task's own out-of-scope note).
+**Recommendation: (C) — a separate interface mini-emitter** (`contracts/codegen/generate_interfaces.py`),
+single signature-YAML source → **two** targets (C++ abstract header + Python `Protocol`; **no** JSON
+Schema — interfaces aren't records). Reasoning:
 
-**Recommendation: SPLIT.** Run 0b = the record surface + the hybrid validator (this plan, §3–§8 as
-written). Run 0c = operational model + interfaces. **Mo decides.** If Mo prefers ONE run, the plan
-still holds — the operational + interfaces sections (§4.2, §4.4) are written so they can be pulled in —
-but expect the generator to hit the STOP-and-flag line on the interface shape (§6, §9-OQ-1), which is
-itself the signal to pause and reconsider codegen. The rest of this plan is written for the **split**
-(0b) scope, with the deferred areas outlined so the decision is reversible.
+- The spine's entire reason for existing is *no silent drift between cross-language producers/consumers*
+  (D-2, D-4). `CoordinatorPort` has a C++ implementer (firmware) and a Python parallel (the harness /
+  a future non-ESP32 coordinator, SPEC §1.6). (B) abandons the drift guard for precisely the artifact
+  where drift is most expensive; (C) keeps it "for free" (one source → both).
+- The STOP-and-flag rule guards **`generate.py`** (the record/field-DSL path) from becoming a framework.
+  (A) violates it by folding a second shape into that path. (C) does **not** grow `generate.py` at all —
+  it stays records-only; the signature shape lives in its own bounded emitter. That is the opposite of
+  framework-creep.
+- The wiring sidesteps the 0b mypy-from-root constraint (`generate.py` docstring OQ-8: an intra-`codegen`
+  import breaks `mypy .`-from-root under the no-config gate): the mini-emitter is a **sibling top-level
+  script**, *not* imported by `generate.py`. `make codegen` runs both scripts sequentially; the single
+  `git diff --exit-code contracts/_generated` drift gate already covers both (both write into
+  `_generated/`). No intra-`codegen` import ⇒ no mypy resolution issue.
+
+**Honest fallback for annotation:** if Mo judges a generator unjustified for ~12 rarely-changing
+operations, fall back to **(B) hand-write + a cross-language parity test** (a Python test that
+string-parses the C++ header's method declarations and compares the operation set + arity to the Python
+`Protocol`'s, via `typing`/`inspect`) — that recovers *most* of the drift guard without an emitter, at
+the cost of a hackier test. **(A) is not recommended.** The concrete design for (C) is in §5.
+
+### LEAD-OQ-B — One run, or split (0c / 0d)?
+
+Encoding the full §3 model (9 entities + the event representation + as-of + the join rules as
+types+docs + per-entity fixtures) **and** the interfaces is a lot, and they are **two different shapes
+of work**: operational = familiar field-DSL records (settled 0b machinery); interfaces = the genuinely
+new emitter. They have **no contract-level dependency on each other** (episode references operational
+entities by id; the ports are firmware seams; the sync-delta stub waits on the *operational* schemas,
+not the ports).
+
+**Recommendation: SPLIT, interfaces-first** — **0c = interfaces**, **0d = the operational model** —
+reasoned on the same shape/urgency/generator-cost/reviewability axes 0b used:
+
+- **Urgency** → interfaces-first. `CoordinatorPort` defines the swappable-transport seam the firmware's
+  port-based architecture is built on, and **firmware is a near-term run** (BUILD_PLAN phase 3). The
+  operational model unblocks ingest/edge (later phases). Nothing is blocked-and-bleeding on the
+  operational schemas today (0b left the sync-delta `entity`/`payload` deliberately opaque, no gate is
+  red).
+- **Generator cost** → isolate the new machinery first. 0c lands + drift-gates the new mini-emitter in a
+  small, low-blast-radius PR; the larger operational PR (0d) then rides on a settled toolchain and reuses
+  the untouched record generator.
+- **Reviewability** → two focused PRs beat one PR that mixes a signature emitter with 9 record entities +
+  rules-as-docs. (0b split operational+interfaces out of the record surface for exactly this reason.)
+
+**Alternative (one run):** lower coordination overhead; both areas fit conceptually under "the two
+deferred areas." Defensible if Mo prefers fewer runs — the plan below is **written to support either**:
+its two halves (Part A: interfaces §4.3+§5; Part B: operational §4.1–§4.2+§4.4) map cleanly onto 0c/0d
+if split, or combine into one run if not.
+
+> The rest of this plan covers **both** areas in full so it stands as a one-run plan; if split is
+> chosen, "0c" = the interfaces half and "0d" = the operational half.
 
 ---
 
-## 3. The directory tree after 0b
-
-Annotated: **`NEW`** = created in 0b · **`0a`** = built in 0a, reused · **`0a→0b`** = 0a file
-modified · **`DEL`** = removed in 0b · **`0c`** = stays stubbed for the next run (README only).
+## 3. The `contracts/` tree after this run (annotated)
 
 ```
 contracts/
-├── README.md                                   0a→0b  (drop the _proof row; note the hybrid validator)
-├── pyproject.toml                              0a      (UNCHANGED — eunomia_contracts stays dependencies=[])
+├── operational/                              [Part B — was a 0b stub README]
+│   ├── README.md                             (rewrite: stub → real)
+│   ├── eunomia-person.schema.yaml            NEW   (§3.1 person; jsonschema+python)
+│   ├── eunomia-hardware-unit.schema.yaml     NEW   (§3.1 hardware_unit + status enum)
+│   ├── eunomia-kit.schema.yaml               NEW   (§3.1 kit; time-bound binding)
+│   ├── eunomia-calibration.schema.yaml       NEW   (§3.1 calibration; scope enum, C-11)
+│   ├── eunomia-task.schema.yaml              NEW   (§3.1 task; versioned prompt)
+│   ├── eunomia-session.schema.yaml           NEW   (§3.1 session; fob_session_id)
+│   ├── eunomia-capture-stack.schema.yaml     NEW   (§3.1 capture_stack, B-9)
+│   ├── eunomia-footage-reference.schema.yaml NEW   (§3.1 footage_reference, A-2 + spot-check hold)
+│   ├── eunomia-episode.schema.yaml           NEW   (§3.2 episode — the join point)
+│   └── eunomia-operational-event.schema.yaml NEW?  (append-only lifecycle event; see OQ-3/OQ-4)
+├── interfaces/                               [Part A — was a 0b stub README]
+│   ├── README.md                             (rewrite: stub → real)
+│   └── ports.iface.yaml                      NEW   (the signature source; LEAD-OQ-A option C)
 ├── codegen/
-│   ├── generate.py                             0a→0b  (driver + source manifest; per-target emitters — §6)
-│   ├── emitters/  (jsonschema.py·python.py·cpp.py)  NEW?  (only if the monolith exceeds budget — §6, OQ-8 note)
-│   ├── README.md                               0a→0b  (new invocation; the budget verdict)
+│   ├── generate.py                           UNCHANGED (records only; stays ~358 lines)
+│   ├── generate_interfaces.py                NEW   (the mini-emitter; LEAD-OQ-A option C)
 │   └── templates/
-│       ├── header.h.tmpl                        0a→0b  (string/enum members; nested left out — OQ-5)
-│       └── module.py.tmpl                       0a→0b  (_HARD/_WARN tables, enum/non-empty/conditional checks)
-├── _proof/                                      DEL     (ping graduates into events/ — §4.5)
-│   └── ping.schema.yaml                         DEL
-├── sidecar/
-│   ├── eunomia-sidecar.schema.yaml              NEW     (CONTRACT §2 — the on-card record)
-│   └── README.md                               0a→0b
-├── release/
-│   ├── eunomia-release.schema.yaml              NEW     (CONTRACT §4 — Hermes-pinned surface)
-│   └── README.md                               0a→0b
+│       ├── header.h.tmpl / detail.h.tmpl / semantics.py.tmpl   UNCHANGED
+│       ├── port.h.tmpl                        NEW   (C++ abstract-header template, fills per port)
+│       └── protocol.py.tmpl                   NEW   (Python Protocol template)
 ├── events/
-│   ├── eunomia-telemetry-event.schema.yaml      NEW     (started/stopped/camera-dropped/recording-suspect)
-│   ├── eunomia-sync-delta.schema.yaml           NEW     (the operational-sync delta — §6)
-│   └── README.md                               0a→0b
-├── operational/   README.md                     0c      (stub; filled in 0c — §4.2)
-├── interfaces/    README.md                     0c      (stub; filled in 0c — §4.4)
-├── overlay/                                     NEW?    (the hand-written pure-stdlib semantics — placement OQ-3)
-│   └── eunomia_overlay/ (…)
-├── _generated/                                  0a→0b  (regenerated; ping artifacts replaced)
-│   ├── cpp/        eunomia_sidecar.h · eunomia_telemetry_event.h          NEW  (firmware-relevant only — OQ-5)
-│   │               eunomia_ping.h                                          DEL
-│   ├── python/eunomia_contracts/  sidecar.py · release.py · events.py · __init__.py   NEW (ping.py DEL)
-│   └── jsonschema/  eunomia-sidecar.schema.json · eunomia-release.schema.json
-│                    eunomia-telemetry-event.schema.json · eunomia-sync-delta.schema.json   NEW (ping.* DEL)
+│   └── eunomia-sync-delta.schema.yaml        EDIT? (entity enum / payload tightening — OQ-9; with 0d)
+├── _generated/                               (all regenerated by `make codegen`; committed, drift-gated)
+│   ├── cpp/
+│   │   ├── eunomia_coordinator_port.h         NEW   (generated abstract header)
+│   │   └── eunomia_capture_device_port.h      NEW
+│   ├── python/eunomia_contracts/
+│   │   ├── person.py … episode.py             NEW   (dataclass + tables + validate/validate_full)
+│   │   ├── operational_event.py               NEW?  (OQ-3/OQ-4)
+│   │   ├── interfaces.py                       NEW   (the Python Protocols)
+│   │   ├── _semantics.py                       EDIT  (add operational cross-field rules; OQ-11)
+│   │   └── __init__.py                          regen (records only; interfaces imported by submodule, OQ-7)
+│   └── jsonschema/
+│       └── eunomia-person.schema.json …        NEW   (operational entities only; interfaces have none)
 └── conformance/
-    ├── fixtures/
-    │   ├── ping/                                DEL
-    │   ├── sidecar/{valid,invalid,warn}/        NEW
-    │   ├── release/{valid,invalid,warn}/        NEW
-    │   └── events/{valid,invalid,warn}/         NEW
-    └── test_conformance.py                      NEW (generalizes test_ping_conformance.py — uses jsonschema)
-
-firmware/coordinator/
-├── platformio.ini                              0a→0b  (EUNOMIA_FIXTURES_DIR → sidecar/events; include both headers)
-└── test/test_contract.cpp                       NEW (generalizes test_ping_contract.cpp over the real headers)
+    ├── fixtures/<entity>/{valid,invalid,warn[,semantic_invalid]}/   NEW per operational entity
+    └── test_conformance.py                     EDIT  (ENTITIES dict + interface-sync test)
 ```
+
+Everything else under `contracts/` (sidecar/, release/, the 0b generated targets) is **untouched**.
 
 ---
 
 ## 4. Per-area plan
 
-For each area: the source file(s), what it encodes (outline — fields referenced to CONTRACT, not
-re-typed), and the decisions made.
+> Field-level detail is **not re-typed** here (CONTRACT §3 is authority). Each entity below names its
+> source file, the CONTRACT/decision reference, the key fields/enums/cross-field rules, and any
+> generator-shape concern. Hard/warn rationale follows the 0b judgment call (HARD = corruption makes the
+> record unsafe to use as an identity/join anchor; everything else WARN/nullable) and is annotated per
+> entity for review.
 
-### 4.1 `contracts/sidecar/` — `eunomia-sidecar` (CONTRACT §2) — **0b**
+### 4.1 The operational entities (Part B) — record-shaped, reuse the 0b DSL
 
-- **Source:** `sidecar/eunomia-sidecar.schema.yaml`, schema id `eunomia-sidecar/v1`.
-- **Encodes (per §2.2, by group):** top-level HARD `schema`; top-level WARN `record_format_version`;
-  `ordering` (`seq` HARD, `global_episode_seq` HARD); the `identity` group (HARD set: `camera_id`,
-  `kit_id`, `side`, `operator_id`, `station_id`, `task_id`, `task_name`, `session_id`, `episode_id`
-  (UUIDv4), `rotation_id`; the **only-two HARD-non-empty**: `kit_id`, `side`; v1-extra HARD `prompt`,
-  `task_source`; WARN: `episode_ordinal`, `bimanual_episode_id`, `display_id` (derived, never-a-key),
-  `calibration_id`, `record_settings`, `mount`, `assignment_source`); the `timing` object
-  (`started_unix`/`stopped_unix`/`start_skew_ms`, `camera_clock` WARN provenance-only); `provenance`
-  (all WARN: `camera_firmware`, `fob_id`, `fob_build`, `kit_version`, `site_id`, `modality`); the
-  `outcome` group (`stop_reason` enum WARN, `archive` WARN, **net-new** `recording_suspect` WARN); the
-  `files` group (`files.back` HARD pointer).
-- **Decisions:** (a) `episode_id`=UUIDv4 pairing key, `display_id`=derived WARN never-a-key
-  (CONTRACT §7 resolved); (b) `task_source` enum `nand_staged|sd_assignment|none`; `stop_reason` enum
-  `operator|timer|card_full|battery|error|overheat`; `modality` enum `umi|teleop`; `side` enum
-  `left|right`; (c) `kit_id`+`side` get `minLength:1` (the only non-empty rule); (d) the v1-extra
-  conditional (`prompt`,`task_source` required when `schema` declares v1+) — OQ-4.
-- **OQ-2 confirm result (the as-built was reached at `~/Desktop/Pantheon/X3_Capture_Kit/`).** The
-  proven writer `pantheon-x3-sidecar/v2` nests **`identity` as an object** (not just `timing`+`files`),
-  stores `seq` as a zero-padded **string**, and carries a top-level camera-derived `timestamp`. This
-  **revises** my OQ-2 sketch. Reconciliation (CONTRACT wins; CONTRACT §2 explicitly "cleans namespacing
-  of the field groups"): encode the §2.2 groups as **nested objects** — `identity`(HARD),
-  `timing`(WARN), `provenance`(WARN), `outcome`(WARN), `files`(HARD) — with `schema`,
-  `record_format_version`, `seq`, `global_episode_seq` as **top-level scalars**. Judgment calls flagged
-  in the report's faithfulness check: (i) `provenance`/`outcome` nested per CONTRACT's clean-namespacing
-  (the as-built scattered these under `identity`/top-level); (ii) `seq` encoded **numeric** per CONTRACT
-  "(numeric)" — the as-built used a zero-padded string; (iii) **no** top-level `timestamp` — CONTRACT
-  drops camera-clock-derived time as poison (the as-built had a hard `timestamp`). Firmware needs the
-  C++ target here (it *writes* the sidecar) — scoped per OQ-5.
+| Entity / file | Encodes (CONTRACT §) | Key fields · enums | Cross-field / shape notes |
+|---|---|---|---|
+| **person** `eunomia-person.schema.yaml` | §3.1 person (B-8); SPEC §3.2.1 | `person_id` (HARD), name/handle, `status` enum `active\|offboarded`, onboarded/offboarded dates, site(s) | Decoupled from kit (binding lives on `kit`/`session`, not here). Employment lifecycle = events (OQ-3). |
+| **hardware_unit** `…hardware-unit…` | §3.1 (B-9, R-2); SPEC §3.2.2/§3.3 | `unit_id` (HARD), `type` enum `fob\|camera\|sd\|gripper`, serials (`body_serial`, `insv_serial` IAQEB…, MAC), `batch_id`, `hardware_version`, `status` enum `received→provisioned→deployed→faulted→retired`, current `kit_id`, camera `side` | **Serials immutable + crosswalk key, NEVER decide kit** (§3.3) — documented. Status *value* is single-record-checkable; **transition legality is multi-record → docs + the event log (OQ-4), not a single-record rule**. Lifecycle events: OQ-4. |
+| **kit** `eunomia-kit.schema.yaml` | §3.1; SPEC §3.2.2 | `kit_id` (HARD); a **time-bound binding** of {left-cam unit, right-cam unit, fob unit} with `effective_from`/`effective_to` (OQ-6) | Camera→side is a property of the unit binding (NAND), not the kit. Spares = pre-bound side-typed units. |
+| **calibration** `…calibration…` | §3.1 (C-11) | `calibration_id`, `scope` enum `none\|fleet\|per_camera`, `camera_serial`, validity range, heavy data (intrinsics/distortion/method/captured_at) | Optional entity; `calibration_id` nullable on episode. Which world we're in is **data (scope), not structure**. |
+| **task** `eunomia-task.schema.yaml` | §3.1/§3.5; SPEC §3.2.3 | `task_id` (HARD), `task_name`, `prompt`, `rotation_id`, `station_id`; structured attrs (category, bimanual, expected_duration, difficulty) | **Versioned** — a prompt change is a new version; episodes resolve prompt **as-of recorded_at** (OQ-6). Carries only task fields, never identity. |
+| **session** `eunomia-session.schema.yaml` | §3.1; SPEC §3.2.1 | `session_id` (HARD), `person_id`, `kit_id`, `site_id`, `station_id`, **`fob_session_id`** (random per fob boot — fob-swap key), signed_in/out, `task_id`, pause tracking | Open/close = events (OQ-3). The time-series that makes churn/throughput queryable. |
+| **capture_stack** `…capture-stack…` | §3.1 (B-9) | `capture_stack_id` (HARD), `modality` enum `umi\|teleop`, camera model/fw, fob board/fw, gripper hw, SD model, coordinator sw version | Reference-by-id from episode (don't bloat episodes). Firmware update = a new stack version / `unit_firmware_updated` event (resolvable as-of). |
+| **footage_reference** `…footage-reference…` | §3.1 (A-2) + the 2026-06-24 spot-check block | `episode_id` (HARD), `footage_state` enum `on_card→on_styx→shipped→on_hades→purged`, `locations`, optional `hash`; **spot-check hold** fields (OQ-5): `spot_check_selected`, `selection_method` enum `qc_sample\|manual_pull`, `rendered_on_hades_at`, `purge_eligible_at` | **Must express the held-purge** — see §4.2 + OQ-5. Tuning values (N%, N-day, watermark) are OUT of scope (§8 OPEN). Note `purged` (CONTRACT §3) vs `purged_from_styx` (A-2) naming — CONTRACT §3 wins; flagged. |
+| **episode** `eunomia-episode.schema.yaml` | §3.2 — **the join point** | `episode_id` (UUIDv4, HARD), `display_id` (WARN, derived), `bimanual_episode_id`, `episode_ordinal`, `global_episode_seq` (HARD); references resolved as-of `recorded_at`: `person_id`, `kit_id`+`side`, `task_id`, `calibration_id`, `capture_stack_id`, `session_id`; `recorded_at`/`ingested_at`; state `paired`/`void`+`void_reason`/`needs_review`/`archive`/`recording_suspect`; `pairing_method` enum `episode_id\|ordinal_join\|needs_review` + `pairing_anomaly` (C-12); embeds/refs a `footage_reference` | `void⇒void_reason` cross-field rule mirrors release (OQ-11). The references are stored here; **resolution as-of recorded_at is what ingest does** (later run). |
 
-### 4.2 `contracts/operational/` — event-sourced model (CONTRACT §3) — **recommend 0c** (outlined)
+**Shape budget (important):** every entity stays within the **existing DSL** — top-level scalars +
+**one** level of nested objects + scalar arrays (`items:<type>`). No entity is allowed to force
+array-of-objects or 2-level nesting (which would grow the generator). Where the model wants a
+repeating sub-structure (e.g. a unit's lifecycle history, a kit's multiple bindings over time, multiple
+footage `locations`), it is modeled as **a separate append-only event/binding record referenced by id**
+(OQ-4), **not** an embedded object array. If any entity genuinely cannot be expressed this way, that is
+a STOP-and-flag → raised as an OQ, not silently extended.
 
-If pulled into 0b, this encodes the 9 entities (`person`, `hardware_unit` (order→batch→unit→
-lifecycle), `kit`, `calibration` (scope `none|fleet|per_camera`), `task`, `session` (`fob_session_id`),
-`capture_stack`, `footage_reference` (`on_card→on_styx→shipped→on_hades→purged`), and `episode` (the
-join point, §3.2)) as typed entities + append-only event records, plus the documented rules: identity
-precedence (§3.3), crosswalk + serial-retargeting (§3.4), task precedence (§3.5), dual-signal join
-(§3.6). **What becomes what:** the *entities/events* → schema; the *enums* (scope, footage_state,
-pairing_method) → schema; **identity precedence, crosswalk, retargeting, the join tiebreaks → typed
-fields + documentation only** (they are join-time, multi-entity logic — not single-record-validatable;
-the *implementation* is a later run). This area is the generator's nesting/graph stressor and is on no
-current critical path → **deferred to 0c (OQ-1).**
+**Targets:** operational entities are **`[jsonschema, python]`** only — firmware never reads the
+operational model (it writes the sidecar + emits telemetry). The C++ flat-bag emitter is **untouched**
+(OQ-10).
 
-### 4.3 `contracts/release/` — release metadata (CONTRACT §4) — **0b**
+### 4.2 Event-sourcing, as-of resolution, and the footage hold
 
-- **Source:** `release/eunomia-release.schema.yaml`, schema id `eunomia-release/v1`.
-- **Encodes (per §4.1, by group):** Identity (frozen) incl. the id references; Time (frozen:
-  `recorded_at`, `camera_clock` provenance-only, `ingested_at`, `time_confidence` enum
-  `ntp_synced|unsynced_monotonic`); Capture stack (frozen); QC (derived, **OPEN taxonomy** —
-  `qc_flags` is an array of strings with **no enum lock**, `qc_reasons`, `qc_score`; plus status-only
-  `probe_failed`/`decode_skipped`); Sync (deferred-null `sync_offset_ms`, `sync_confidence`); State
-  (`paired`, `void`+`void_reason`, `needs_review`, `archive`, `recording_suspect`, `label_source`);
-  Deferred-null-at-ingest (`human_label`, `task_completed`, the sync pair) → modeled **nullable**.
-- **Decisions:** (a) **This is the external contract surface** — its `schema` string is what Hermes
-  pins (§5); flagged as such in the README and the changelog. (b) `qc_flags` stays open (array of
-  string, never an enum) — a closed taxonomy here would be a faithfulness bug. (c) deferred-null
-  fields are `["null", T]` unions, present-but-null at ingest. (d) release references operational
-  entities by **id only** — so it is fully encodable in 0b without the §3 entities existing yet (§2
-  seam). No C++ target (Hermes/ingest are Python; firmware never touches release — OQ-5).
+- **Event-sourced representation (OQ-3).** Each entity above is the **current-state (materialized-view)
+  record**. The append-only **event log** is represented by (a) the existing **`eunomia-sync-delta`
+  envelope** as the generic upsert/delete transport (tightened so `entity` is the set of operational
+  entity names and `payload` is documented to validate against the entity schema — OQ-9), plus (b) a
+  first-class **`operational-event`** record where a lifecycle carries its own fields beyond the entity
+  snapshot (hardware-unit status transitions with `reason`+related refs; person onboard/offboard;
+  session open/close; `unit_firmware_updated`; calibration recorded; task version bump). The
+  **fold/materializer is NOT implemented** — 0c/0d defines the types and documents the derivation.
+- **As-of resolution (OQ-6).** Encoded *temporally* at the type level: time-bound bindings carry
+  explicit validity ranges (`effective_from` / nullable `effective_to` = open/current) — kit↔person,
+  kit↔units, calibration validity, task version validity; events carry `as_of`. Episode carries
+  `recorded_at`. The **rule** ("an episode resolves its references against the binding true at
+  `recorded_at`") is documented; the **resolver runs at ingest = later run**.
+- **The footage held-purge (OQ-5).** `footage_reference` expresses the spot-check semantics from the
+  2026-06-24 decision: keep until **(a) `rendered_on_hades_at` is set AND (b) the N-day window elapses,
+  whichever is LONGER** → `purge_eligible_at`; `spot_check_selected` + `selection_method` mark *why*
+  it's held; the Styx watermark is an **operational threshold (config) documented as a bounding
+  override**, its value deferred (§8). The faithfulness check (§ when implemented) will confirm the
+  lifecycle can express held-purge / N-day / watermark.
 
-### 4.4 `contracts/interfaces/` — `CoordinatorPort` / `CaptureDevicePort` — **recommend 0c** (outlined)
+### 4.3 The §3 rules — types + documentation, NOT enforced single-record validation
 
-These are **operation signatures, not records** — the 0a field-list DSL does not represent them. The
-generator would need a neutral *interface-description* format emitted as a C++ abstract header + a
-Python `Protocol`/ABC. That source-format choice does **not** fall out of the record DSL (it is a
-different shape) → it is its own design question (**OQ-1** rolls this into the 0c split; if 0b must
-include it, the interface-source format becomes a blocking sub-question and the generator would likely
-trip STOP-and-flag). The README stays the 0c stub; the port surface is already sketched in
-`contracts/interfaces/README.md`.
+The join/precedence/as-of logic is **multi-entity, join-time** — not validatable on one record (the
+honest-scope position 0b established). Encoded as **typed fields + prose in the entity READMEs/schema
+comments**, with `_semantics` used **only** where a rule is genuinely a single-record cross-field check:
 
-### 4.5 `contracts/events/` — telemetry + sync-delta (§3 events / §6) — **0b**
-
-- **Sources:** `events/eunomia-telemetry-event.schema.yaml` (`eunomia-telemetry-event/v1`) and
-  `events/eunomia-sync-delta.schema.yaml` (`eunomia-sync-delta/v1`).
-- **Encodes:** the god's-view telemetry event (`started`/`stopped`/`camera-dropped`/
-  `recording-suspect`) — modeled as **one record with an `event` enum discriminator + conditional
-  fields**, mirroring the as-built `pantheon-trigger-episode/v1` `{event, kit_id, fob_session_id,
-  ordinal, wallclock, ms, station, prompt, cams[], sent, total}` shape (BUILD_PLAN learnings) — and the
-  operational-sync delta format used by `edge/sync/`. See **OQ-7** (one polymorphic event vs one
-  source per type).
-- **Decisions:** the `ping` proof **graduates** here: `_proof/ping.schema.yaml`, the generated
-  `*ping*` artifacts, the `fixtures/ping/`, `test_ping_conformance.py`, the C++ `test_ping_contract.cpp`,
-  and the `platformio.ini` `EUNOMIA_FIXTURES_DIR` path are all removed/repointed to the real event
-  (enumerated in §3 tree + §8). Firmware needs the C++ target here (it *emits* telemetry).
-
-### 4.6 Two-axis versioning (CONTRACT §5) — **0b, cross-cutting**
-
-- `schema` (string, additive semver, parser-facing) and `record_format_version` (int, writer-owned,
-  forensic) are encoded as first-class fields on the sidecar (and the release carries its own `schema`
-  + the forensic handles). **The validator uses `schema` to know which fields to expect** — this is
-  the conditional-presence machinery (the v1-extra hard set), realized as a JSON Schema `if/then` keyed
-  on the `schema` string **and** mirrored in the stdlib validator (§5, OQ-4). Additive-only is enforced
-  by discipline + the conformance rule that an older fixture must still validate under the current
-  schema (a `warn/` fixture omitting a newer field stays valid).
-
-### 4.7 Conformance — extend the harness (CONTRACT §6) — **0b** (full design in §5, §7)
-
----
-
-## 5. The hybrid-validator design (the piece to scrutinize)
-
-The locked **Option C** is two validators sharing one severity model. The key clarification: **JSON
-Schema only knows valid/invalid; the hard-vs-warn *severity* is a second axis the overlay owns.**
-
-### 5.1 The two validators (which is which)
-
-| | **Shipped stdlib validator** | **Dev/CI hybrid conformance validator** |
+| Rule (CONTRACT §) | How 0c/0d encodes it | Single-record `_semantics` rule? |
 |---|---|---|
-| **Where it runs** | cam-side / ingest / edge — **in the field** | the CI conformance gate only |
-| **Deps** | **pure-stdlib** (no `jsonschema`) | `jsonschema` (Draft 2020-12) + the stdlib overlay |
-| **What it is** | generated `eunomia_contracts.<entity>.validate(obj)->hard_errors` and `validate_full(obj)->(hard_errors, warnings)` + the overlay | a dev harness in `conformance/` that validates fixtures against the emitted JSON Schema with the real lib, then applies the overlay |
-| **Structural layer** | generated purpose-built field checks (types from `_HARD`/`_WARN` tables) — **not** a hand-rolled JSON-Schema interpreter | the **real `jsonschema` library** against `_generated/jsonschema/*.json` |
+| **Identity precedence** §3.3 (kit←fob, side←NAND, operator←roster, station+prompt←fob trigger; serials never decide) | Typed reference fields on `episode` + prose; precedence is applied by the ingest resolver (later) | No (multi-entity) |
+| **Crosswalk + serial retargeting + kit aliases** §3.4 | `insv_serial`/`body_serial` on `hardware_unit` as the crosswalk key; alias mapping documented | No (multi-entity) |
+| **Task precedence** §3.5 (NAND → SD → none) | `task_source` enum already on the sidecar; documented on `task`/`episode` | No |
+| **Dual-signal join** §3.6 (ordinal spine + duration guardrail; tiebreaks `ordinal_slip`/`board_swap`/`clock_suspect`/`needs_review`; phantom-press gate `sent==2`; block-labeling; void-by-flag) | `pairing_method` + `pairing_anomaly` on `episode` (C-12); tiebreak names + the gate documented | No (the join itself is a later run) |
+| **Void requires reason** §4.1/§3.2 | — | **Yes** — `episode.void⇒void_reason` mirrors the release rule, hand-written in `_semantics` keyed by the episode schema id (OQ-11) |
+| **Footage hold consistency** (OQ-5) | — | **Yes (candidate)** — `spot_check_selected ⇒ selection_method present`; flagged for review |
 
-`jsonschema` lives in a **dev/validation dependency group only** (§8). It never enters
-`contracts/pyproject.toml` (which stays `dependencies = []`), and the conformance test is **not** part
-of the shipped `eunomia_contracts` wheel (the wheel packages only `_generated/python/eunomia_contracts`
-[+ the overlay, OQ-3]). So the field validator stays pure-stdlib by construction.
+### 4.4 Conformance — extend the harness (records) + prove interface sync
 
-The 0a hand-rolled stdlib schema-checker in `test_ping_conformance.py` (`_schema_errors`) is
-**retired**: the CI structural layer is now the real `jsonschema` lib. The *shipped* validator stays
-stdlib but is purpose-built (it checks the contract directly from generated tables), not a generic
-JSON-Schema interpreter — that is the distinction the locked decision draws (it is why the shipped
-validator won't "diverge silently on nested/enum/conditional fields").
-
-### 5.2 What each layer covers
-
-- **JSON Schema layer (emitted, Draft 2020-12, browser-validatable with ajv):** types, enums,
-  nesting, nullable (`["null", T]`), arrays, required-vs-optional (`required` = the **hard** fields
-  only), `minLength:1` (kit_id/side), and conditional presence (`if {schema matches v1+} then
-  {required: [prompt, task_source]}`, OQ-4). **No custom dialect** in the structural layer — pure
-  Draft 2020-12 so the consoles' ajv validates the same file.
-- **stdlib overlay (pure-stdlib, the Eunomia semantics JSON Schema can't express) — OQ-3 sharp
-  boundary: declarative-DATA is generated, actual LOGIC is hand-written.**
-  1. **The hard-vs-warn severity split (generated DATA):** the partition is driven by a generated
-     **severity table** (field-path → `hard|warn`, the `_HARD`/`_WARN` tables — pure data). A
-     *missing* hard field or a *malformed* hard field → **hard error**. A *malformed warn field* (a
-     structural type error on a warn path) → **downgraded to a warning**. A *missing warn field* →
-     not an error (absence is surfaced as a triage advisory, not invalidating). This is the
-     "warn-only downgrade." The enum value-sets, `minLength`, and the **one** conditional-presence
-     rule are likewise generated as simple **table lookups**.
-  2. **Bespoke cross-field rules (hand-written LOGIC, NOT generated):** anything that is real logic —
-     a cross-field dependency like *`void == true ⇒ void_reason present & non-empty`* (release,
-     grounded in §4.1 "void+void_reason") — is **hand-written in a small pure-stdlib overlay module**
-     (`eunomia_contracts._semantics`, shipped in the contracts wheel). It is **not** emitted from a
-     YAML rule-DSL: generating a severity table is safe data-driven codegen; generating arbitrary
-     cross-field logic is a mini rules-engine and exactly what the generator-complexity STOP-and-flag
-     is meant to catch (OQ-3). The hand-written overlay stays small and pure-stdlib.
-  3. **Honest scope flag:** identity precedence / "camera-clock-is-poison" / the join tiebreaks are
-     *join-time, multi-entity* rules — **not mechanically checkable on one record**. They are encoded
-     as **typed fields + documentation** now; their enforcing logic is 0c/ingest. The overlay's
-     mechanically-enforceable share in 0b is: the (generated) severity partition + enum/non-empty/
-     conditional checks, plus the (hand-written) `void⇒void_reason` cross-field rule.
-
-### 5.3 How hard-vs-warn shows in validator output
-
-`validate(obj) -> list[str]` (hard errors only — the field-side go/no-go) and `validate_full(obj) ->
-(hard_errors, warnings)`. A record with a malformed **warn** field returns `([], ["warn: <field> …"])`
-→ **valid-with-warnings** (accepted, flagged). A record missing a **hard** field returns
-`(["hard: missing <field>"], …)` → **rejected**. The conformance harness proves the shipped stdlib
-verdict equals the `jsonschema`+overlay verdict on every fixture.
-
-### 5.4 How `jsonschema` wires into the gate
-
-`conformance/test_conformance.py` (run by the existing `uv run pytest`, gate #1): for each entity,
-load `_generated/jsonschema/<entity>.schema.json`, build a `jsonschema` validator, and assert (a) it
-accepts every `valid/` + `warn/` and rejects every `invalid/`; (b) the overlay classifies `warn/` as
-valid-with-warnings and hard failures as rejected — including a fixture whose **only** problem is a
-warn field (proving the downgrade); (c) the generated Python validator and the C++ header agree with
-`jsonschema` on the structural layer. No new gate command — it rides the existing pytest gate (§8).
+- **Operational entities:** per entity, fixtures in `valid/`, `invalid/`, `warn/` (and
+  `semantic_invalid/` for episode's void rule + footage's hold rule), run through the **same hybrid
+  validator** — real `jsonschema` Draft 2020-12 for structure + the stdlib `_semantics` overlay for the
+  hard-vs-warn split + cross-field rules. Mechanically: add each entity to the `ENTITIES` dict in
+  `test_conformance.py`; the existing parametrized `valid/invalid/warn/semantic_invalid` test bodies
+  pick them up with no new test logic (only the dict + the `validate`-parity map grow).
+- **Interface sync proof (per LEAD-OQ-A):**
+  - **If (C) generated:** the in-sync proof *is* the drift gate — both the C++ header and the Python
+    `Protocol` come from one `ports.iface.yaml`, so `make codegen && git diff --exit-code
+    contracts/_generated` proves they cannot drift. Plus: the generated C++ abstract header must
+    **compile in `pio test -e native`** (add an `#include` + a trivial mock implementer that overrides
+    the pure-virtuals — proves the header is implementable), and the generated Python `Protocol` is
+    under `mypy .` already (add a tiny mock class asserted to satisfy it, mypy-checked).
+  - **If (B) hand-written fallback:** show the C++ header builds and the `Protocol` type-checks, and
+    state plainly there is no codegen guard (discipline + the optional parity test only).
 
 ---
 
-## 6. The codegen plan
+## 5. The interface-representation design (LEAD-OQ-A → option C, concretely)
 
-- **Source manifest:** `generate.py` stops pointing at the single `_proof` file and iterates a
-  manifest of `contracts/<area>/*.schema.yaml` sources → for each, emit the 3 targets (C++ only for
-  firmware-relevant records — OQ-5). Output stays deterministic (sorted keys, no timestamps) so drift
-  is meaningful.
-- **DSL extensions needed (assessment against the ~150-line budget):**
+**Source — `contracts/interfaces/ports.iface.yaml`** (a *separate shape* from the field-DSL): a list of
+ports, each with a doc string and a list of operations; each operation has `name`, `params`
+(name+type), `returns` (type), `doc`. A tiny fixed **type vocabulary** maps to each language:
 
-  | Extension | Classification | Budget read |
-  |---|---|---|
-  | `enum` (scalar value set) | more field-types | cheap (a `TYPES`-style table + an `enum` key) |
-  | `nullable` / `["null", T]` | more field-types | cheap |
-  | `array of scalar` (qc_flags, cams[]) | more field-types | cheap |
-  | `minLength:1` (non-empty) | a field attribute | cheap |
-  | **conditional presence** (v1-extra hard set) | **one bounded rule**, not a field-type | a single declarative block (`conditional_required: {when_schema_min: 1, fields: […]}`) → JSON Schema `if/then` + a stdlib check. Borderline but **bounded to one rule** |
-  | **nesting** (timing, files) | borderline | kept **shallow** (match as-built, OQ-2); one level, no general recursion |
-  | **interfaces** (signatures) | **real complexity / different shape** | **does not fit** — the STOP-and-flag trigger → deferred to 0c (OQ-1) |
-
-- **The STOP-and-flag verdict (the approved rule holds):** with the **split** (OQ-1), 0b's additions
-  are "more field-types + one bounded conditional + shallow nesting" — they pressure the budget but do
-  **not** require a framework. **Recommended structure to absorb the pressure without growing a
-  monolith (OQ-8):** split `generate.py` into a thin driver + three per-target emitters
-  (`emitters/{jsonschema,python,cpp}.py`) sharing one field-DSL parser (the BUILD_PLAN carry-forward
-  #3). Each emitter stays individually obvious and small; the budget is read **per emitter**, not as
-  one 150-line file. **If, while implementing, any single emitter needs real recursion / a real type
-  system to handle the 0b records, I STOP and flag it in the report** rather than growing it — that
-  pressure is the signal to reconsider codegen (a decision for Mo). The interface shape is already
-  identified as over the line, hence the 0c split.
-- **PyYAML pinning (hermetic codegen):** add a pinned **`codegen` dependency group** to the root
-  `pyproject.toml` (`pyyaml>=6.0,<7.0`) and change `make codegen` from `uv run --no-project --with
-  pyyaml …` to a pinned-group invocation. **Wrinkle (OQ-6):** codegen must still run *before* `uv sync`
-  builds `eunomia-contracts` (its package *is* the generated tree) — so the invocation must install the
-  group without building the project. Recommended: `uv run --no-project --only-group codegen python
-  contracts/codegen/generate.py`, verified at implement-time to resolve the chicken-egg; fallback is a
-  pinned `contracts/codegen/requirements.txt` via `--with-requirements`. CI installs this group before
-  the drift gate.
-
----
-
-## 7. Conformance fixtures plan
-
-Per entity (sidecar, release, events), three fixture classes — the **`warn/`** class is new (the
-severity split):
-
-| Class | What it contains | Expected verdict |
+| IDL type | C++ | Python |
 |---|---|---|
-| `valid/` | a full record + a minimal-hard-only record | `jsonschema` accepts; overlay → `([], [])` |
-| `invalid/` | missing a hard field; **empty** `kit_id`/`side`; missing `schema`; wrong-typed hard field; v1 file missing `prompt`/`task_source` | `jsonschema` rejects; overlay → hard_errors ≠ [] |
-| `warn/` | missing a warn field (e.g. `episode_ordinal`); **malformed** warn field (wrong type — the downgrade demo); `recording_suspect`/`archive` set | `jsonschema` *may* flag the malformed-warn structural error; overlay **downgrades** → `([], ["warn: …"])` = **valid-with-warnings** |
+| `uuid` / `str` / `filename` | `std::string` | `str` |
+| `ack` | `bool` (or a small struct — OQ) | `bool` |
+| `camera` | an enum/id (`std::string`) | `str` |
+| `set[camera]` | `std::vector<std::string>` | `set[str]` |
+| `record` (sidecar) | `const eunomia::Sidecar&` | `Sidecar` (or `dict` — OQ-7) |
+| `state` | enum | `str`/`Enum` |
+| `profile` | descriptor (`std::string`) | `str` |
+| `void` | `void` | `None` |
 
-**Proving the three targets agree** (per entity, in `test_conformance.py`): (a) real `jsonschema`
-accepts every `valid/`+`warn/`, rejects every `invalid/`; (b) the generated Python `validate_full`
-returns the same accept/reject *and* the same hard-vs-warn partition (the shipped stdlib validator does
-not diverge from the canonical schema); (c) the C++ header parses the same `valid/`+`warn/` fixtures
-(structural subset it owns — OQ-5) via `pio test -e native`. Per-entity accept/reject/warn counts go in
-the report. The **malformed-warn fixture is the headline demo** the report calls out (warn-vs-hard
-working). The codegen-drift gate must stay green on the committed tree.
+**The operations (sourced from CONTRACT §1.6 / SPEC §1.6 / MODULE_MAP):**
+
+*CoordinatorPort* — `mint_episode_id() -> uuid`; `trigger(cameras) -> ack` (serialized, near-simultaneous;
+the phantom-press gate `sent==2`; **no per-take arm** — discardd holds video mode);
+`read_clip_filename(camera) -> filename`; `write_sidecar(camera, record) -> void`;
+`detect_drop() -> set[camera]` (at the L2/network-association layer, **not** OSC polling);
+`flush_telemetry() -> void` (idle-gap god's-view events).
+
+*CaptureDevicePort* — `start() -> void`; `stop() -> void`; `read_back_filename() -> filename`;
+`get_state() -> state`; `set_profile(profile) -> void`; `write_sidecar(record) -> void`.
+
+**Emitted artifacts (one source → two targets; no JSON Schema):**
+
+- `contracts/_generated/cpp/eunomia_coordinator_port.h` + `…_capture_device_port.h` — a pure-virtual
+  abstract class per port (`virtual <ret> <op>(<params>) = 0; … virtual ~Port() = default;`), filled
+  from `templates/port.h.tmpl`. Must compile in the native test.
+- `contracts/_generated/python/eunomia_contracts/interfaces.py` — a `typing.Protocol` per port (method
+  signatures with type hints, `...` bodies), filled from `templates/protocol.py.tmpl`. Ruff-clean as
+  emitted; mypy-clean.
+
+**Kept in sync / drift-checked:**
+
+- The mini-emitter `contracts/codegen/generate_interfaces.py` is a **sibling top-level script** (NOT
+  imported by `generate.py` — avoids the mypy-from-root issue, `generate.py` docstring OQ-8). `make
+  codegen` runs **both** scripts; the existing `git diff --exit-code contracts/_generated` covers both
+  outputs. Same source → both targets ⇒ they cannot drift.
+- `interfaces.py` is **not** added to the generated `__init__.py` (which `generate.py` builds from the
+  record specs only) — consumers `from eunomia_contracts.interfaces import CoordinatorPort`. This keeps
+  the two emitters fully decoupled (OQ-7).
+
+---
+
+## 6. Codegen + generator-budget impact
+
+| Area | Generator impact | Budget verdict |
+|---|---|---|
+| **Operational records** | **None to `generate.py`** if every entity stays within the existing DSL (1-level nesting + scalar arrays; repeating structures → separate event/binding records, §4.1). Cross-field rules are hand-written in `_semantics` (OQ-3 boundary), keyed by schema id — same pattern as the release void rule. | Record-shaped → **cheap.** `generate.py` stays ~358 lines. |
+| **Interfaces** | A **new** `generate_interfaces.py` (~80–120 lines: parse the signature YAML, fill two templates) + two templates. **`generate.py` is not touched.** | The real new machinery — but **isolated**; the record generator does **not** become a framework. STOP-and-flag **honored**. |
+
+**If implementation reveals an entity needs array-of-objects or 2-level nesting** (a generator
+extension), that is the STOP-and-flag trigger → stop and raise it, do not grow the DSL silently.
+
+---
+
+## 7. Conformance plan (summary)
+
+- **Per operational entity:** `valid/` (real `jsonschema` accepts + stdlib hard==[]), `invalid/`
+  (both reject), `warn/` (hard==[] with warnings — exercises the severity split), and
+  `semantic_invalid/` for `episode` (void without reason) + `footage_reference` (selected without
+  method). `test_conformance.py` grows by the `ENTITIES` dict + the hard-only parity map only.
+- **Interfaces (option C):** drift gate = the in-sync proof; C++ header compiles + is mock-implemented in
+  `pio test -e native`; Python `Protocol` is mypy-checked + structurally satisfied by a mock. (Option B
+  fallback: build/type-check only + a stated no-guard caveat + optional parity test.)
 
 ---
 
 ## 8. Gate + drift impact
 
-**The 5 Hermes Python gates stay byte-identical in command and order** — confirmed:
-
-```
-uv run pytest  →  uv run ruff check .  →  uv run ruff format --check .  →  uv run mypy .  →  uv run lint-imports
-```
-
-What changes (none of it alters those 5 command strings):
-
-| Change | Detail |
-|---|---|
-| New dev dep | `jsonschema>=4.0,<5.0` in a dev/validation group; likely `types-jsonschema` too so `mypy .` stays clean (flag/verify) |
-| Codegen invocation | `make codegen` → pinned `codegen` group (§6, OQ-6); CI installs it before `make drift` |
-| `make codegen` produces more files | `_generated/{cpp,python,jsonschema}` gain the real entities, lose the `ping` ones; **`make drift` (codegen && git diff --exit-code _generated) must be 0** |
-| pytest scope | `conformance/test_conformance.py` replaces `test_ping_conformance.py`; uses `jsonschema`; still under `testpaths=["contracts","tooling"]` |
-| C++ gate | `pio test -e native` now builds `test_contract.cpp` over the real headers; `platformio.ini` `EUNOMIA_FIXTURES_DIR` repointed; **still blocking**. esp32 target + clang-tidy **stay non-blocking** in 0b |
-| import-linter | `eunomia_contracts` still "imports nothing internal"; if the overlay is a separate package (OQ-3) it is added to `root_packages` with its own forbidden/independence contract; otherwise unchanged |
-| ruff/format | generated output **and** the hand-written overlay + conformance test must be ruff- and ruff-format-clean as emitted/written |
-
-`contracts/pyproject.toml` stays `dependencies = []` (pure-stdlib shipped validator). No new blocking
-gates; the hybrid validator rides the existing pytest gate.
+- **The 5 Python gates stay byte-identical** (`uv run pytest` → `ruff check .` → `ruff format --check
+  .` → `mypy .` → `lint-imports`, on tool defaults — there remains **no** `[tool.ruff]`/`[tool.mypy]`
+  section). New generated Python (entity modules + `interfaces.py`) must be ruff-format-clean **as
+  emitted**; the existing `make codegen` step already runs `ruff format contracts/_generated/python`,
+  so the drift gate stays meaningful.
+- **No new dev/runtime deps expected.** `jsonschema`/`types-jsonschema` already present (0b); the
+  mini-emitter uses PyYAML (already pinned in `contracts/codegen/requirements.txt`) + stdlib; the
+  shipped validator stays pure-stdlib. **To confirm at implement** (state plainly if any dep is added).
+- **import-linter unchanged.** New modules live under `eunomia_contracts` (intra-package). The forbidden
+  contract (`eunomia_contracts` must not import `eunomia_bench_harness`) still holds. If `interfaces.py`
+  types `write_sidecar`'s param as the generated `Sidecar` dataclass, that is an intra-`eunomia_contracts`
+  import (allowed); `dict` avoids it entirely (OQ-7).
+- **`testpaths` already includes `contracts`** → new fixtures + conformance params are auto-collected.
+- **C++ gates:** `clang-format` runs on **hand-written** firmware only (generated headers are exempt but
+  must compile); `pio test -e native` gains the port-header compile/mock if interfaces are in this run.
 
 ---
 
-## 9. Open Questions — ALL RESOLVED (Mo's annotations folded in)
+## 9. Open questions (numbered; options + recommendation)
 
-**OQ-1 — ONE run or split? → RESOLVED: SPLIT (A).** 0b = record surface + hybrid validator; 0c =
-operational model + interfaces. The release-via-id-references seam is the cut. Sequencing note: 0b
-unblocks firmware *starting* (sidecar + events C++ headers it writes/emits); 0c unblocks firmware's
-*port-based* structure (Coordinator/CaptureDevice ports = the swappable-transport seam).
-
-**OQ-2 — sidecar JSON shape → RESOLVED: match the as-built nesting, reconciled to CONTRACT's clean
-groups.** Confirmed against the reachable as-built (§4.1): `identity` is nested too (not just
-`timing`+`files`). Encode the §2.2 groups as nested objects (`identity`/`timing`/`provenance`/
-`outcome`/`files`) + top-level scalars (`schema`/`record_format_version`/`seq`/`global_episode_seq`).
-Generator nesting stays **one level, no recursion**. Judgment calls (provenance/outcome nesting, `seq`
-numeric, no `timestamp`) flagged in §4.1 + the report.
-
-**OQ-3 — overlay placement → RESOLVED: (A) with a SHARP boundary.** Declarative-in-source is limited to
-what is essentially **DATA** — the severity table (field→hard|warn), enum value-sets, `minLength`, and
-the **one** conditional-presence rule — all generated into simple **table lookups**. Anything that is
-actual **LOGIC** (cross-field rules like `void ⇒ void_reason`) is **hand-written** in the small
-pure-stdlib overlay module (`eunomia_contracts._semantics`), **NOT** generated from a YAML rule-DSL
-(generating arbitrary cross-field logic is a mini rules-engine — the STOP-and-flag target). The
-hand-written overlay stays small + pure-stdlib and ships in the contracts wheel.
-
-**OQ-4 — v1-extra conditional → RESOLVED: (A) semver pattern.** `^eunomia-sidecar/v[1-9][0-9]*$` ⇒
-require the v1-extra hard set, in `if/then`; the stdlib side parses the int and applies `>= 1`.
-
-**OQ-5 — C++ target scope → RESOLVED: (A).** C++ emitted only for firmware-relevant records (sidecar +
-events), scoped to struct + serialize + flat scalar/string parse, **no nested parse**. Release +
-(0c) operational are Python+JSON-Schema only. The C++ structural-subset scope is stated honestly in
-the conformance report.
-
-**OQ-6 — PyYAML codegen invocation → RESOLVED: (A, fallback B).** `uv run --no-project --only-group
-codegen …`; verify it resolves a group without building the project (the chicken-egg). Fallback: pinned
-`contracts/codegen/requirements.txt` via `--with-requirements`. Requirement (pinned, hermetic,
-CI-installed-before-drift) is fixed; incantation confirmed at implement-time.
-
-**OQ-7 — events shape → RESOLVED: (A).** One polymorphic telemetry-event record with an `event` enum
-discriminator + conditional fields, mirroring `pantheon-trigger-episode/v1`. Sync-delta is its own
-source.
-
-**OQ-8 — generator structure → RESOLVED: (B if the monolith crosses ~150 lines while staying
-obvious).** Driver + `emitters/{jsonschema,python,cpp}` sharing one field-DSL parser; budget read **per
-emitter**. STOP-and-flag still governs real-complexity growth in any single emitter.
+- **OQ-1 = LEAD-OQ-A** (interface representation). **Rec: (C)** separate mini-emitter; **(B)** the
+  honest fallback; **(A)** not recommended. (§2, §5.)
+- **OQ-2 = LEAD-OQ-B** (one run vs split). **Rec: split, interfaces-first** (0c = interfaces, 0d =
+  operational). (§2.)
+- **OQ-3 — Event-log representation.** (a) current-state records + tightened sync-delta envelope + a
+  first-class `operational-event` record; (b) current-state records only + envelope (no dedicated event
+  record); (c) full per-entity event schemas. **Rec: (a)** — minimal + reuses 0b; the dedicated event
+  record exists only where a lifecycle carries its own fields. Fold/materializer = later run.
+- **OQ-4 — Lifecycle history shape.** Embedded array-of-objects on the entity (⇒ **DSL extension /
+  STOP-and-flag**) vs a **separate append-only event record** (telemetry-style discriminator, fits the
+  existing DSL). **Rec: separate event record — no generator change.**
+- **OQ-5 — `footage_reference` held-purge fields.** **Rec:** `footage_state` enum +
+  `spot_check_selected` + `selection_method` enum + `rendered_on_hades_at` + `purge_eligible_at`
+  (= max(rendered-on-hades, N-day window)); the watermark threshold + N%/N-day **values stay OUT of
+  scope** (§8 OPEN / tuning). Resolve the `purged` vs `purged_from_styx` name (CONTRACT §3 = `purged`).
+- **OQ-6 — As-of / validity ranges.** Explicit `effective_from`/nullable `effective_to` on time-bound
+  bindings (kit↔person, kit↔units, calibration, task version) + event `as_of`. **Rec: yes**; the
+  resolver is a later run.
+- **OQ-7 — `interfaces.py` export + sidecar param typing.** **Rec:** keep interfaces **out** of the
+  generated `__init__` (decoupled emitters; import by submodule path); type `write_sidecar`'s record as
+  the generated `Sidecar` dataclass (precise; intra-package import allowed) **or** `dict` (fully
+  decoupled). Lean precise; flag for Mo.
+- **OQ-8 — Mini-emitter wiring.** Run `generate.py` then `generate_interfaces.py` as **sibling commands**
+  in `make codegen` (no intra-`codegen` import → no mypy-from-root breakage). **Rec: yes** — single
+  drift gate covers both.
+- **OQ-9 — Tighten the 0b `sync-delta` stub.** Make `entity` an enum of operational entity names +
+  document `payload` against the entity schemas. **Caveat:** an enum on a previously-open string is a
+  **narrowing**, not additive (CONTRACT §5) — so either bump `sync-delta` to `/v2`, or express the
+  entity set as a **WARN-level `_semantics` check** (structurally still an open string, additive-safe).
+  **Rec: the WARN-level check** (keeps v1 additive) unless Mo wants the version bump; lands with 0d.
+- **OQ-10 — Operational C++ target.** **Rec: none** — operational entities are `[jsonschema, python]`;
+  firmware never reads them. C++ flat-bag emitter untouched.
+- **OQ-11 — Operational `_semantics` cross-field rules.** Add `episode.void⇒void_reason` (mirror
+  release) and the footage hold-consistency rule, hand-written + keyed by schema id. **Rec: yes** (the
+  only single-record rules; everything else is multi-entity → docs).
+- **OQ-12 — `pairing_method`/`pairing_anomaly` placement (C-12).** Already on release; **Rec:** also on
+  `episode` (pairing is decided there before it's frozen into release).
 
 ---
 
-## 10. What 0b deliberately does NOT do (restated)
+## 10. What this run deliberately does NOT do (restated)
 
-- **No module logic** — no firmware trigger state machine, no ingest/identity/join/QC implementation,
-  no edge/store, no consoles. 0b is the *contract*, not its consumers. The dual-signal join's *rules*
-  are encoded (as types + documentation; in 0c with the operational model) — the join *implementation*
-  that runs at ingest is a later run.
+- **No module logic** — no firmware state machine, no ingest/identity/join/QC implementation, no
+  edge/store, no consoles. This is the **contract** (types + schema + interface definitions + documented
+  rules), not its consumers.
+- **No join / precedence / as-of resolution *implementation*** — those are later runs. 0c/0d defines the
+  types and documents the rules.
 - **No substrate scripts, no web stack, no Hermes-side cleaning code.**
-- **Does not pick the Hermes contract-consumption mechanism** (package vs submodule vs vendored) — 0b
-  just makes `release/` the clean, pinned surface.
-- **Recommended-deferred to 0c (OQ-1):** the full operational model (§3 entities/events/as-of, the
-  precedence/crosswalk/join *logic*) and the interfaces (`CoordinatorPort`/`CaptureDevicePort`).
-- **Does not grow the generator into a framework** — if the 0b records push any emitter into real
-  complexity, the run STOPS and flags rather than absorbing it (§6).
+- **Does not pick** the Hermes contract-consumption mechanism, the spot-check tuning values (N%, N-day,
+  watermark), or the firmware-vs-ingest resolution of the **sidecar-shape divergence**. On that
+  divergence (0b carry-forward): the operational `episode` **joins the sidecar by `episode_id`**, not by
+  its physical nesting — it references sidecar **fields by logical name** (`episode_id`,
+  `global_episode_seq`, `side`, `kit_id`, …), so the operational model does **not** assume the nested vs
+  flat shape. The divergence stays visible and is resolved in the firmware run or by ingest tolerance,
+  **not here**.
 
 ---
 

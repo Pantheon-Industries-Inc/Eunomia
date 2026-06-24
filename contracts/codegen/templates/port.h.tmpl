@@ -1,0 +1,26 @@
+// @MSG@
+#ifndef @GUARD@
+#define @GUARD@
+
+@INCLUDES@
+
+// Generated ABSTRACT INTERFACE (Run 0c, LEAD-OQ-A option C): a pure-virtual C++ port emitted from
+// contracts/interfaces/ports.iface.yaml by contracts/codegen/generate_interfaces.py (a SEPARATE
+// mini-emitter, NOT the record generator). Firmware implements this port; a board/camera swap is a
+// new implementation of the same port, nothing upstream changes. This is NOT a data record — there
+// is no JSON Schema target. Kept in sync with the Python Protocol (eunomia_contracts.interfaces) by
+// the single codegen-drift gate: one source -> two targets, so they cannot drift.
+
+namespace eunomia {
+
+@CLASSDOC@
+class @CLASS@ {
+ public:
+  virtual ~@CLASS@() = default;
+
+@METHODS@
+};
+
+}  // namespace eunomia
+
+#endif  // @GUARD@
