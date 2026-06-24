@@ -1,0 +1,18 @@
+{
+  "cams": [
+    "2f:aa",
+    "2f:bb"
+  ],
+  "emitted_at": "2026-06-24T10:00:00Z",
+  "episode_id": "550e8400-e29b-41d4-a716-446655440000",
+  "episode_ordinal": 12,
+  "event": "started",
+  "fob_session_id": "a1b2",
+  "kit_id": "kit_07",
+  "ms": 120345,
+  "prompt": "fold",
+  "schema": "eunomia-telemetry-event/v1",
+  "sent": 2,
+  "station": "5",
+  "total": 2
+}

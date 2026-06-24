@@ -1,0 +1,55 @@
+# Eunomia operational-sync delta — the edge->Hades metadata sync envelope.
+#
+# AUTHORITY: docs/CONTRACT.md §3 (event-sourced operational model) + D-3 (edge-authoritative
+# store periodically syncs metadata to a Hades backup). One delta per operational-state change.
+#
+# SCOPE NOTE (deferred, §8 OPEN): the edge-sync CADENCE + CONFLICT POLICY + the Hades-backup shape
+# are deliberately deferred to when `edge/sync/` is built. 0b encodes only the DELTA ENVELOPE shape
+# so the contract surface exists; `payload` is an OPAQUE object here because the operational entity
+# schemas (person/hardware_unit/episode/...) land in 0c. `entity` is an open string for the same
+# reason (it becomes an enum of operational entity types in 0c). No C++ target (edge-side Python).
+
+schema: eunomia-sync-delta/v1
+title: SyncDelta
+description: Edge->Hades operational-metadata sync delta envelope (CONTRACT §3/D-3; cadence deferred §8).
+targets: [jsonschema, python]
+
+fields:
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-sync-delta/v1]
+    description: Schema identifier.
+  - name: delta_seq
+    type: int
+    required: hard
+    description: Monotonic per-edge sequence (ordering + gap detection for the sync).
+  - name: emitted_at
+    type: string
+    required: hard
+    description: When the edge emitted this delta.
+  - name: entity
+    type: string
+    required: hard
+    non_empty: true
+    description: Operational entity type (open string in 0b; becomes an enum of §3 entities in 0c).
+  - name: op
+    type: string
+    required: hard
+    enum: [upsert, delete]
+    description: The append-only operation (event-sourced; delete is a tombstone, never a hard wipe).
+  - name: entity_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The entity instance id.
+  - name: as_of
+    type: string
+    required: warn
+    nullable: true
+    description: The as-of timestamp the change resolves against (event-sourcing; §3 B-8).
+  - name: payload
+    type: object
+    required: warn
+    nullable: true
+    description: OPAQUE entity fields (validated against the §3 entity schemas in 0c; opaque here).

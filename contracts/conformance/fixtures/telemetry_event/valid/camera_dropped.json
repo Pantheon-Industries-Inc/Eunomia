@@ -1,0 +1,8 @@
+{
+  "emitted_at": "2026-06-24T10:01:00Z",
+  "event": "camera_dropped",
+  "kit_id": "kit_07",
+  "ms": 130000,
+  "schema": "eunomia-telemetry-event/v1",
+  "side": "left"
+}

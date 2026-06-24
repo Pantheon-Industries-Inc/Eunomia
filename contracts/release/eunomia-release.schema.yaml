@@ -1,0 +1,268 @@
+# Eunomia release metadata — the per-episode record the Hermes analytical platform ingests.
+#
+# AUTHORITY: docs/CONTRACT.md §4. The JOIN of the sidecar (§2) + the operational model (§3),
+# resolved as-of recorded_at, FROZEN at ingest, PLUS the derived QC/sync/pairing fields.
+# THIS IS THE EXTERNAL CONTRACT SURFACE: Hermes pins a version of `schema` and ingests it (§5,
+# the anti-drift discipline). Operational entities are referenced BY ID ONLY (the §2 seam that
+# lets 0b encode release without the §3 entities existing yet; those land in 0c).
+#
+# STRUCTURE: encoded FLAT (top-level fields, grouped by comment) — the analytical ingest surface
+# is denormalized columns, unlike the on-card sidecar's nested groups. (Judgment call, flagged.)
+#
+# HARD vs WARN (judgment call — CONTRACT §4 does not mark fields hard/warn the way §2.2 does):
+#   HARD = the keys Hermes needs to identify + join + time-place an episode (schema, episode_id,
+#   kit_id, side, global_episode_seq, recorded_at, ingested_at, time_confidence). Everything else
+#   is denormalized context / derived / deferred -> WARN or nullable. Flagged for review.
+#
+# QC TAXONOMY IS OPEN (§4.1): qc_flags / qc_reasons are arrays of string with NO enum lock —
+# a closed taxonomy here would be a faithfulness bug (qc_score.py: "No closed taxonomy").
+#
+# CROSS-FIELD RULE (hand-written in eunomia_contracts._semantics, NOT generated — OQ-3):
+#   void == true  =>  void_reason present & non-empty   (grounded in §4.1 "void+void_reason").
+
+schema: eunomia-release/v1
+title: Release
+description: Per-episode release metadata Hermes ingests — the frozen join of sidecar + operational (CONTRACT §4).
+targets: [jsonschema, python]  # ingest emits it / Hermes reads it (Python); firmware never touches it (OQ-5)
+
+fields:
+  # ---- versioning ----
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-release/v1]
+    description: Schema identifier Hermes pins (§5, anti-drift).
+
+  # ---- identity (frozen) ----
+  - name: episode_id
+    type: string
+    required: hard
+    description: UUIDv4 pairing/join key (§7). The ONLY join key.
+  - name: display_id
+    type: string
+    required: warn
+    description: DERIVED human handle; never a key (§7).
+  - name: bimanual_episode_id
+    type: string
+    required: warn
+    description: Shared L/R pairing id (pairs the two wrist cams of one take).
+  - name: episode_ordinal
+    type: int
+    required: warn
+    description: The fob label ordinal.
+  - name: global_episode_seq
+    type: int
+    required: hard
+    description: NAND swap-proof ordering spine.
+  - name: kit_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The kit (HARD-non-empty).
+  - name: side
+    type: string
+    required: hard
+    non_empty: true
+    enum: [left, right]
+    description: Camera side (HARD-non-empty).
+  - name: camera_id
+    type: string
+    required: warn
+    description: Camera body identity (provenance).
+  - name: body_serial
+    type: string
+    required: warn
+    nullable: true
+    description: Immutable body serial (crosswalk/provenance; §3.4).
+  - name: insv_serial
+    type: string
+    required: warn
+    nullable: true
+    description: The IAQEB .insv serial (crosswalk key; §3.4).
+  - name: person_id
+    type: string
+    required: warn
+    description: Operator/person id (roster binding as-of recorded_at).
+  - name: person_name
+    type: string
+    required: warn
+    nullable: true
+    description: Operator name (denormalized; PII handling deferred, §8).
+  - name: station_id
+    type: string
+    required: hard
+    description: Station identity.
+  - name: task_id
+    type: string
+    required: hard
+    description: Task identity.
+  - name: task_name
+    type: string
+    required: warn
+    description: Human task name.
+  - name: prompt
+    type: string
+    required: warn
+    description: Task prompt as-of recording.
+  - name: rotation_id
+    type: string
+    required: warn
+    description: Rotation identity.
+  - name: session_id
+    type: string
+    required: hard
+    description: Shift/session identity.
+
+  # ---- time (frozen); camera_clock is provenance-only / poison ----
+  - name: recorded_at
+    type: string
+    required: hard
+    description: Fob NTP wallclock (authoritative). Best-effort offline; reliability carried by time_confidence (C-10).
+  - name: camera_clock
+    type: string
+    required: warn
+    nullable: true
+    description: PROVENANCE-ONLY; never authoritative (no RTC; poison).
+  - name: ingested_at
+    type: string
+    required: hard
+    description: When ingest froze this record (distinct from recorded_at).
+  - name: time_confidence
+    type: string
+    required: hard
+    enum: [ntp_synced, unsynced_monotonic]
+    description: "Reliability of recorded_at (RTC-ready: add rtc_freewheel later with no schema change, C-10)."
+
+  # ---- capture stack (frozen; forensic, by-id) ----
+  - name: capture_stack_id
+    type: string
+    required: warn
+    nullable: true
+    description: Registered capture-stack reference (B-9).
+  - name: modality
+    type: string
+    required: warn
+    enum: [umi, teleop]
+    description: Capture modality (umi today).
+  - name: camera_firmware
+    type: string
+    required: warn
+    description: Insta360 fw.
+  - name: fob_id
+    type: string
+    required: warn
+    description: Coordinator fob id.
+  - name: fob_build
+    type: string
+    required: warn
+    description: Fob firmware build.
+  - name: kit_version
+    type: string
+    required: warn
+    description: discardd firmware version.
+  - name: record_format_version
+    type: int
+    required: warn
+    description: Writer-owned forensic build int (§5).
+  - name: record_settings
+    type: string
+    required: warn
+    description: Resolution/fps/stabilization (3K/100, FlowState off, audio-on).
+  - name: site_id
+    type: string
+    required: warn
+    description: Site identity.
+  - name: calibration_id
+    type: string
+    required: warn
+    nullable: true
+    description: Optional calibration reference (scope none/fleet/per_camera; C-11).
+
+  # ---- QC (derived at ingest; OPEN taxonomy — no enum lock) ----
+  - name: qc_flags
+    type: array
+    items: string
+    required: warn
+    description: OPEN set of quality flags (whichever fired); never a closed enum (qc_score.py).
+  - name: qc_reasons
+    type: array
+    items: string
+    required: warn
+    description: Per-flag human reasons.
+  - name: qc_score
+    type: number
+    required: warn
+    nullable: true
+    description: Cohort-relative score (default-ok).
+  - name: probe_failed
+    type: bool
+    required: warn
+    description: "Status-only (not quality): ffprobe/decode probe failed."
+  - name: decode_skipped
+    type: bool
+    required: warn
+    description: "Status-only: decode skipped."
+
+  # ---- sync (derived; deferred-null at ingest) ----
+  - name: sync_offset_ms
+    type: number
+    required: warn
+    nullable: true
+    description: Cross-cam audio post-sync offset (filled downstream; null at ingest).
+  - name: sync_confidence
+    type: number
+    required: warn
+    nullable: true
+    description: Audio xcorr score_ratio (>20 solid, 5-15 ok, <5 unreliable).
+
+  # ---- state (promotion gates on the void FLAG, never a directory) ----
+  - name: paired
+    type: bool
+    required: warn
+    description: Left+right paired (only paired non-void episodes are training/QA-able, §4.2).
+  - name: void
+    type: bool
+    required: warn
+    description: Voided by flag. void==true REQUIRES void_reason (cross-field rule, §4.1).
+  - name: void_reason
+    type: string
+    required: warn
+    nullable: true
+    description: Why voided (required when void==true; the hand-written overlay rule).
+  - name: needs_review
+    type: bool
+    required: warn
+    description: Flagged for review (identity/pairing disagreement; never silently overwrite, §3.3).
+  - name: archive
+    type: int
+    required: warn
+    description: 0/1 — soft discard (archive bucket, not training set).
+  - name: recording_suspect
+    type: int
+    required: warn
+    description: 0/1 — the did-it-actually-record flag (the no-SD trap).
+  - name: label_source
+    type: string
+    required: warn
+    description: Where the label came from (live sidecar vs order-join fallback).
+  - name: pairing_method
+    type: string
+    required: warn
+    enum: [episode_id, ordinal_join, needs_review]
+    description: How L/R were paired (C-12).
+  - name: pairing_anomaly
+    type: bool
+    required: warn
+    description: episode_id pairing disagreed with the ordinal cross-check (C-12).
+
+  # ---- deferred-null at ingest (filled later) ----
+  - name: human_label
+    type: string
+    required: warn
+    nullable: true
+    description: Human label (filled post-ingest).
+  - name: task_completed
+    type: bool
+    required: warn
+    nullable: true
+    description: Whether the task was completed (filled post-ingest).

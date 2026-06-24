@@ -1,0 +1,7 @@
+{
+  "emitted_at": "2026-06-24T10:02:00Z",
+  "event": "recording_suspect",
+  "kit_id": "kit_07",
+  "ms": 150000,
+  "schema": "eunomia-telemetry-event/v1"
+}

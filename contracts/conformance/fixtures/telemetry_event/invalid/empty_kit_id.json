@@ -1,0 +1,7 @@
+{
+  "emitted_at": "x",
+  "event": "started",
+  "kit_id": "",
+  "ms": 1,
+  "schema": "eunomia-telemetry-event/v1"
+}

@@ -1,0 +1,54 @@
+// @MSG@
+#ifndef EUNOMIA_DETAIL_H
+#define EUNOMIA_DETAIL_H
+
+#include <cstddef>
+#include <cstdlib>
+#include <string>
+
+// Shared flat field-BAG parse helpers for every generated Eunomia C++ header (OQ-5). Each entity
+// header (eunomia_<entity>.h) includes this once and adds only its struct + parse_<entity> +
+// serialize_<entity>. Whole-string key lookup (no structural descent): a nested leaf is found by its
+// unique key. Strings only; arrays / opaque objects / bool are not modeled here.
+
+namespace eunomia {
+
+namespace detail {
+inline bool find_value(const std::string& s, const std::string& key, std::size_t& pos) {
+  std::string needle = "\"" + key + "\"";
+  std::size_t k = s.find(needle);
+  if (k == std::string::npos) return false;
+  std::size_t c = s.find(':', k + needle.size());
+  if (c == std::string::npos) return false;
+  std::size_t p = c + 1;
+  while (p < s.size() && (s[p] == ' ' || s[p] == '\t' || s[p] == '\n' || s[p] == '\r')) p++;
+  if (p >= s.size()) return false;
+  pos = p;
+  return true;
+}
+}  // namespace detail
+
+template <typename T>
+inline bool parse_number(const std::string& s, const std::string& key, T& out) {
+  std::size_t p = 0;
+  if (!detail::find_value(s, key, p)) return false;
+  char c = s[p];
+  if (!(c == '-' || c == '+' || c == '.' || (c >= '0' && c <= '9'))) return false;
+  out = static_cast<T>(std::strtod(s.c_str() + p, nullptr));
+  return true;
+}
+
+inline bool parse_string(const std::string& s, const std::string& key, std::string& out) {
+  std::size_t p = 0;
+  if (!detail::find_value(s, key, p)) return false;
+  if (s[p] != '"') return false;  // absent / null / non-string -> not parseable as a string
+  std::size_t start = p + 1;
+  std::size_t end = s.find('"', start);
+  if (end == std::string::npos) return false;
+  out = s.substr(start, end - start);
+  return true;
+}
+
+}  // namespace eunomia
+
+#endif  // EUNOMIA_DETAIL_H

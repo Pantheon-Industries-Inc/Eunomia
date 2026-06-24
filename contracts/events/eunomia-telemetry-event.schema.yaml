@@ -1,0 +1,83 @@
+# Eunomia god's-view telemetry event — the exception-first live ops feed.
+#
+# AUTHORITY: docs/CONTRACT.md §1.2 (ops/god's-view) + §6; shape grounded in the as-built
+# pantheon-trigger-episode/v1 (~/Desktop/Pantheon/X3_Capture_Kit/pipeline/trigger_join.py).
+# Emitted by the coordinator for near-real-time per-kit status (recording / cams connected /
+# did-it-record). Consumed by consoles/gods-view/. The Run 0a `ping` proof graduates into this.
+#
+# POLYMORPHIC (OQ-7): ONE record with an `event` enum discriminator + conditional fields.
+# Common fields are HARD (schema, event, kit_id, ms); event-specific fields are WARN/optional.
+# JUDGMENT CALL (flagged): per-event-type required-field refinement (e.g. cams[] required only for
+# `started`) is modeled as warn-optional in 0b — the discriminator is hard; refining per-event
+# requirements is deferred (would add N conditional rules; the ONE conditional rule stays the
+# sidecar v1-extra set). `emitted_at` is a HARD string but NOT non-empty (the fob wallclock is ""
+# before the first NTP sync; `ms` (uptime) is the always-present monotonic anchor — trigger_join.py).
+
+schema: eunomia-telemetry-event/v1
+title: TelemetryEvent
+description: God's-view live telemetry event emitted by the coordinator (CONTRACT §1.2/§6).
+targets: [jsonschema, python, cpp]  # firmware EMITS telemetry -> C++ target emitted (OQ-5)
+
+fields:
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-telemetry-event/v1]
+    description: Schema identifier.
+  - name: event
+    type: string
+    required: hard
+    enum: [started, stopped, camera_dropped, recording_suspect]
+    description: The discriminator — which telemetry event this is.
+  - name: kit_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The kit this event is about (HARD-non-empty).
+  - name: ms
+    type: int
+    required: hard
+    description: Fob uptime (monotonic within one fob_session_id); the always-present timing anchor.
+  - name: emitted_at
+    type: string
+    required: hard
+    description: Fob NTP wallclock (authoritative; "" before the first sync — present but may be empty).
+  - name: fob_session_id
+    type: string
+    required: warn
+    description: Random per fob boot; the fob-swap disambiguation key.
+  - name: episode_id
+    type: string
+    required: warn
+    nullable: true
+    description: The episode (for started/stopped/recording_suspect).
+  - name: episode_ordinal
+    type: int
+    required: warn
+    description: The fob label ordinal.
+  - name: side
+    type: string
+    required: warn
+    enum: [left, right]
+    description: Which camera (for camera_dropped).
+  - name: station
+    type: string
+    required: warn
+    description: Station at press time.
+  - name: prompt
+    type: string
+    required: warn
+    description: Task prompt at press time.
+  - name: cams
+    type: array
+    items: string
+    required: warn
+    description: Cameras that acked (for started); the phantom-press gate inputs.
+  - name: sent
+    type: int
+    required: warn
+    description: "Cameras acked (the phantom-press gate: sent==2 required to advance the ordinal)."
+  - name: total
+    type: int
+    required: warn
+    description: Cameras targeted.

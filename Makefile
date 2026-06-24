@@ -29,8 +29,10 @@ gates-python:
 	uv run lint-imports
 
 # ---- C++: blocking gates ----
+# --style=file is explicit (it IS the default — read .clang-format): it also sidesteps a
+# clang-format 22 quirk in the implicit config search across multi-subtree relative paths.
 gates-cpp:
-	clang-format --dry-run -Werror $(CPP_FILES)
+	clang-format --dry-run -Werror --style=file $(CPP_FILES)
 	$(PIO) test -e native -d firmware/coordinator
 	$(MAKE) camera-image-checksum
 
@@ -40,8 +42,13 @@ gates-cpp-nonblocking:
 	@echo "clang-tidy: configured in .clang-tidy, non-blocking in 0a (flips on when coordinator/core/ lands)"
 
 # ---- codegen + drift ----
+# Hermetic: generate under the pinned codegen deps (--no-project, so it runs before uv could build
+# the eunomia-contracts package it produces), then canonicalize the generated Python with the
+# project's pinned ruff (the generator emits valid Python; ruff owns the exact format). Both steps
+# are deterministic, so `make drift` is meaningful. (OQ-6 / BUILD_PLAN carry-forward #1.)
 codegen:
-	uv run --no-project --with pyyaml python contracts/codegen/generate.py
+	uv run --no-project --with-requirements contracts/codegen/requirements.txt python contracts/codegen/generate.py
+	uv run ruff format contracts/_generated/python
 
 drift: codegen
 	git diff --exit-code contracts/_generated

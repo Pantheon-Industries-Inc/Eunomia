@@ -1,376 +1,460 @@
-# Run 0a — Eunomia Foundation: Implementation Plan (PLAN ONLY, rev 2)
+# Run 0b — `contracts/`: encode the real Eunomia contract (PLAN)
 
-**Status:** revised per your annotations. Every OQ-1…OQ-14 note is folded into the body; §6 is now the
-resolution record (no open questions remain — two tiny Hermes-mirror confirmations flagged at the end
-of §6). Still **not implemented** — awaiting "implement".
-
----
-
-## 0. What I found in the repo (read-first results + discrepancies)
-
-I read `Docs/CONTRACT.md`, `Docs/MODULE_MAP.md`, and the Run-0-blocking decisions in
-`Docs/DECISION_REGISTER.md` in full, and skimmed `SPEC.md`, `VALIDATION_PLAN.md`,
-`HARDWARE_FINDINGS.md`. Three things differ from what the run prompt assumed — resolved as step 1 of
-implementation:
-
-| Prompt expected | Actually in repo | Plan (approved) |
-|---|---|---|
-| `docs/` (lowercase) | **`Docs/`** (capital D), git-tracked | Rename to `docs/` via the two-step case-only `git mv` on this case-insensitive FS (OQ-1). Needed so the CLAUDE.md `@docs/...` import + the ADR path resolve on case-sensitive CI. |
-| `docs/CONTRIBUTING.md` | **absent** | Author it in 0a from the conventions stated in the run prompt's "Execution environment" section + MODULE_MAP §docs — **stated conventions only, nothing invented** (OQ-2). |
-| `docs/REGISTER.md` | named **`DECISION_REGISTER.md`** | Keep the longer name; it *is* MODULE_MAP §docs's "decision register". No rename (OQ-9). |
-
-The six source docs are all present (no `_incoming/`). All **8 modules** named in the prompt match
-`MODULE_MAP.md` exactly: `contracts/ firmware/ ingest/ edge/ consoles/ substrate/ tooling/ docs/`.
-Branch is `Mzcassim/lima` — not renamed. No `.claude/` or `.github/` yet.
-
-> **Overarching constraint (OQ-4):** the Python toolchain **mirrors Hermes exactly** — version
-> bounds, gate commands + order, defaults-only ruff/mypy, pytest config, CI shape, and package
-> naming. The specifics are baked into §3.2, §4, and the CI plan below. This is the explicit
-> "match Hermes" requirement, so where this plan and Hermes ever disagree, Hermes wins.
+> **Status: APPROVED — implementing.** All eight Open Questions are resolved (§9, with Mo's
+> annotations folded in); OQ-3's data-vs-logic boundary is sharpened in §5.2/§6/§9. Authority for
+> every field is `docs/CONTRACT.md`; where it and any other doc disagree, CONTRACT wins. (This
+> replaces the merged Run 0a plan, which lives in git history at `ea31f9d`.)
+>
+> **Report-back scope (Mo's note):** the report's faithfulness check covers the **0b-scoped sections
+> only** — §2 sidecar, §4 release, §5 versioning, and events — **not** §3 operational or the
+> interfaces (those are 0c). Everything else in the report-back spec stands as written, including the
+> merge-readiness evidence.
 
 ---
 
 ## 1. Summary
 
-Run 0a stands up the **skeleton + gates + substrate placeholder + conventions** for the Eunomia
-monorepo: the 8 top-level modules from `MODULE_MAP.md` (each with a one-responsibility README), the
-two polyglot build shells (a `uv` Python 3.12 workspace that **mirrors Hermes exactly** and a
-PlatformIO ESP32 coordinator project), per-language gates plus a cross-language conformance gate wired
-identically for local and CI (and identical to Hermes for the five Python gates), and deterministic
-`.claude/` enforcement (auto-format + secret-block hooks, a `reviewer` subagent, a lean
-navigation-map `CLAUDE.md`). Its load-bearing piece is the **codegen proof**: ONE trivial `ping` event
-encoded once as a language-neutral YAML source, with a small (<~150-line) hand-written generator
-emitting a C++ header, a Python type, and a JSON Schema, exercised end-to-end by a conformance test —
-proving "one source, three targets" before the real contract is poured in. Run 0a deliberately does
-**not** encode the real contract (that is 0b), write any firmware/ingest/edge/console logic, or copy
-real substrate scripts. The whole point is a *known-good harness* the next run fills against.
+**What 0b produces:** the real Eunomia data contract poured through the 0a codegen + conformance
+harness — replacing the throwaway `ping` proof. Concretely, the *record-shaped* contract surface:
+
+- `contracts/sidecar/` — the on-card `eunomia-sidecar` record (CONTRACT §2), with the hard-vs-warn
+  split, the only-two non-empty fields (`kit_id`+`side`), the v1-extra conditional, and the two-axis
+  versioning fields.
+- `contracts/release/` — the release-metadata record Hermes ingests (§4) — **the external contract
+  surface** Hermes pins a version of.
+- `contracts/events/` — the god's-view telemetry event(s) + the operational-sync delta (§3 events /
+  §6). The `ping` proof graduates into a real telemetry event here.
+- `contracts/` **two-axis versioning** (§5) made first-class: `schema` (string, parser-facing,
+  drives conditional presence) ⊥ `record_format_version` (int, writer-owned, forensic).
+- **The hybrid conformance validator** (the locked Option C): real `jsonschema` Draft 2020-12 for
+  the structural layer + a pure-stdlib overlay for the hard-vs-warn severity split and the
+  Eunomia-specific semantics. Wired into the conformance gate.
+- **Hermetic codegen:** PyYAML pinned in a codegen dependency group (retires the 0a ephemeral
+  `uv run --with pyyaml`).
+- **Conformance extended, not replaced:** `valid/` + `invalid/` + **`warn/`** fixtures per entity;
+  all three targets (JSON Schema via `jsonschema`, the Python type+validator, the C++ header) proven
+  to agree; the codegen-drift gate still green on the committed tree.
+
+**What 0b defers (see §2 — recommended split, and §10):** the full **operational model** (§3: the 9
+event-sourced entities, as-of resolution, identity-precedence *logic*, crosswalk/serial-retargeting,
+the dual-signal join *rules-as-logic*) and the **interfaces** (`CoordinatorPort` / `CaptureDevicePort`
+— a different, non-record shape) are recommended to move to **Run 0c**. 0b encodes everything the
+coordinator *writes* and Hermes *ingests*; 0c encodes the operational *store* and the hardware *seams*.
+
+**What 0b never does:** any module logic (no firmware state machine, no ingest/identity/join/QC
+implementation, no edge/console code), no substrate scripts, no web stack, no Hermes-side cleaning
+code, and it does **not** pick the Hermes contract-consumption mechanism.
 
 ---
 
-## 2. The directory tree (one line per entry)
+## 2. ⭐ FIRST OPEN QUESTION — ONE run, or split 0b / 0c?
 
-> `(existing)` = already in repo · `(NEW)` = created in 0a · `[0b]` = placeholder/README only in 0a,
-> filled later · `[gen]` = generated, committed, drift-gated.
+Encoding all of §2–§6 **plus** the interfaces in a single run is a lot, and it is exactly the lot
+that pressures the generator (requirement 3). My honest assessment is to **split**, and here is why.
 
-```
-eunomia/                              # repo root ($CONDUCTOR_ROOT_PATH / $CLAUDE_PROJECT_DIR)
-├── plan.md                          (existing) this plan
-├── README.md                        (NEW) one screen: what Eunomia is · run the gates · plan-mode workflow
-├── CLAUDE.md                        (NEW) lean root agent guide (~100 lines, navigation map)
-├── .gitignore                       (NEW) python + platformio + uv + secrets (_generated/ is COMMITTED, not ignored)
-├── .python-version                  (NEW) 3.12  (pins, mirrors Hermes)
-├── pyproject.toml                   (NEW) thin root meta-package "eunomia": uv workspace members,
-│                                          [dependency-groups] dev (exact Hermes bounds), [tool.pytest.ini_options],
-│                                          [tool.importlinter] — and NO [tool.ruff]/[tool.mypy] (defaults, like Hermes)
-├── uv.lock                          (NEW) committed lockfile
-├── Makefile                         (NEW) gate entrypoints — local == CI == Hermes (verbatim uv-run commands)
-├── .clang-format                    (NEW) C++ format config
-├── .clang-tidy                      (NEW) C++ lint config (non-blocking in 0a)
-│
-├── .github/workflows/ci.yml         (NEW) ONE gates job mirroring Hermes + additional cpp/conformance/codegen-drift steps
-│
-├── .claude/
-│   ├── settings.json                (NEW) two hooks (see §5) — NO commit-guard hook in 0a
-│   ├── hooks/
-│   │   ├── format-edited.sh         (NEW) PostToolUse: ruff format / clang-format -i the edited file
-│   │   └── block-secrets.sh         (NEW) PreToolUse: exit 2 to block .env / key-material reads+writes
-│   ├── agents/
-│   │   ├── reviewer.md              (NEW, ~30 ln) diffs work-done vs plan/spec, reports discrepancies
-│   │   └── contract-conformance.md  (NEW, optional) checks emitters/consumers vs the generated JSON Schema [for 0b]
-│   ├── skills/
-│   │   ├── codegen/SKILL.md         (NEW) how to add/regenerate a contract + the drift gate
-│   │   └── gates/SKILL.md           (NEW) how to run/debug each gate locally
-│   └── rules/
-│       ├── contracts.md             (NEW) never hand-edit _generated/; edit the source + regenerate
-│       ├── firmware.md              (NEW) core/ stays pure + off-target testable; transport/ui swappable
-│       └── substrate.md             (NEW) interface FROZEN; non-destructive merge only
-│
-├── docs/                            (renamed from Docs/) design + conventions
-│   ├── CONTRACT.md                  (existing) data-model spine
-│   ├── MODULE_MAP.md                (existing) structure authority
-│   ├── SPEC.md                      (existing) long-form lifecycle
-│   ├── DECISION_REGISTER.md         (existing) decisions + open questions
-│   ├── HARDWARE_FINDINGS.md         (existing) background
-│   ├── VALIDATION_PLAN.md           (existing) bench/validation plan
-│   ├── CONTRIBUTING.md              (NEW) git/PR/agent conventions (stated-only) — @-imported by CLAUDE.md
-│   ├── BUILD_PLAN.md                (NEW) thin: phase sequence + current scope = Run 0a (mirrors Hermes's docs/BUILD_PLAN.md)
-│   └── adr/0001-architecture.md     (NEW) the architecture decision record (outline §3.8; full at impl)
-│
-├── contracts/                       THE SPINE — imports nothing. "one source, three targets."
-│   ├── README.md                    (NEW) responsibility + "imports nothing" dependency rule
-│   ├── pyproject.toml               (NEW) dist `eunomia-contracts` / import `eunomia_contracts` (types + stdlib validator)
-│   ├── codegen/
-│   │   ├── generate.py              (NEW) the generator (<~150 lines of obvious code): neutral YAML → C++/Python/JSON Schema
-│   │   └── README.md                (NEW) source format · targets · how invoked · drift gate · the <150-line / stop-and-flag rule
-│   ├── _proof/ping.schema.yaml      (NEW) the ONE tiny 2-field neutral-source example (throwaway; 0b replaces)
-│   ├── _generated/                  [gen] codegen outputs — COMMITTED + drift-gated
-│   │   ├── cpp/eunomia_ping.h       [gen] header-only struct + parse/serialize (no deps, off-target safe)
-│   │   ├── python/eunomia_contracts/{__init__.py,ping.py}  [gen] dataclass + validate()
-│   │   └── jsonschema/ping.schema.json                     [gen] the conformance-gate schema
-│   ├── conformance/
-│   │   ├── fixtures/ping/valid/*.json    (NEW) golden valid records
-│   │   ├── fixtures/ping/invalid/*.json  (NEW) golden invalid records
-│   │   └── test_ping_conformance.py      (NEW) py-side cross-target conformance test (collected by pytest)
-│   ├── sidecar/README.md            [0b] on-card schema area
-│   ├── operational/README.md        [0b] event-sourced entities area
-│   ├── release/README.md            [0b] release-metadata area (what Hermes pins)
-│   ├── interfaces/README.md         [0b] CoordinatorPort / CaptureDevicePort
-│   └── events/README.md             [0b] telemetry-event + op-sync-delta area
-│
-├── firmware/                        C++ / PlatformIO, ESP32  (outside the Python import-linter; boundary = include structure + conformance gate)
-│   ├── README.md                    (NEW) responsibility + dependency rule
-│   ├── coordinator/
-│   │   ├── platformio.ini           (NEW) env:esp32 (target, non-blocking in 0a) + env:native (off-target host tests, blocking)
-│   │   ├── src/main.cpp             (NEW) placeholder shell only
-│   │   ├── core/README.md           [0b] pure, hardware-free, off-target testable (implements CoordinatorPort)
-│   │   ├── transport/README.md      [0b] swappable WiFi-AP/OSC/telnet layer
-│   │   ├── ui/README.md             [0b] swappable touchscreen layer
-│   │   └── test/test_ping_contract.cpp  (NEW) off-target host test: parse golden fixtures via the generated header
-│   └── camera-image/
-│       ├── README.md                (NEW) reproducible packaging of a stock binary + on-camera agent; checksum-verified
-│       └── checksum_gate.py         (NEW) stub: verify packaged binary vs recorded checksum (no-op until built)
-│
-├── ingest/                          Python — dirs + READMEs only in 0a (joins the workspace in its own run)
-│   └── README.md  identity/README.md  join/README.md  qc/README.md  release/README.md  orchestrator/README.md   [all 0b]
-│
-├── edge/                            Python — dirs + READMEs only in 0a
-│   └── README.md  store/README.md  sync/README.md  api/README.md                                                 [all 0b]
-│
-├── consoles/                        web stack — dirs + READMEs only in 0a (no stack chosen — OQ-14)
-│   └── README.md  _shared/README.md  site-setup/README.md  provisioning/README.md
-│       inventory/README.md  workforce/README.md  gods-view/README.md                                            [all 0b]
-│
-├── substrate/                       ported host substrate — interface FROZEN
-│   └── README.md                    (NEW) frozen-interface statement + where Styx config gets vendored (no real scripts in 0a)
-│
-└── tooling/                         Python engineering tooling
-    ├── README.md                    (NEW) responsibility + dependency rule
-    └── bench-harness/
-        ├── pyproject.toml           (NEW) dist `eunomia-bench-harness` / import `eunomia_bench_harness` (shell)
-        ├── README.md                (NEW) two layers: thin real serial/telnet IO + hardware-free replay core
-        └── src/                     (NEW) placeholder
-```
+**The two halves separate cleanly by *shape*, *urgency*, and *generator cost*:**
 
----
-
-## 3. Per-area plan
-
-### 3.1 Repo skeleton (8 modules + per-module READMEs)
-Create the tree above. Each module gets a short `README.md` stating **its single responsibility** and
-**its dependency rule** ("depends only on `contracts/`"), lifted faithfully from `MODULE_MAP.md`.
-Submodule READMEs carry the one-line role from the map. `ingest/ edge/ consoles/` are directories +
-READMEs only (no Python packages in 0a — they become workspace members in their own runs).
-
-### 3.2 Polyglot workspace shells — Python mirrors Hermes EXACTLY (OQ-4)
-- **Root `pyproject.toml`** — a **thin root meta-package** named `eunomia` (no real code; real code in
-  workspace members), with:
-  - `requires-python = ">=3.12"` (uncapped, like Hermes); `.python-version` pins `3.12`; uv-managed.
-  - `[tool.uv.workspace] members = ["contracts", "tooling/bench-harness"]` (grows as packages land).
-  - `[dependency-groups] dev = ["pytest>=8.0,<9.0", "ruff>=0.10,<0.20", "mypy>=1.10,<2.0",
-    "import-linter>=2.0,<3.0"]` — **these exact bounds**.
-  - `[tool.pytest.ini_options]`: `python_files = ["test_*.py"]`, `addopts = "-ra -q"`,
-    `testpaths` analogous to Hermes's `["tests","packages"]` adapted to Eunomia's top-level members →
-    `["contracts", "tooling"]` in 0a (the conformance test lives at `contracts/conformance/`; grows as
-    members are added). No `pythonpath` in 0a (no shared fixtures yet); add `pythonpath =
-    ["tests/support"]` when shared fixtures appear (Hermes form).
-  - `[tool.importlinter]` — see §3.4.
-  - **NO `[tool.ruff]` and NO `[tool.mypy]` sections, and no separate ruff/mypy config file.** Both run
-    on **defaults**, exactly like Hermes. No invented rule selections or strictness flags.
-- **Member packages** — naming mirrors `hermes-<name>`/`hermes_<name>`:
-  - `contracts/pyproject.toml` → dist `eunomia-contracts`, import `eunomia_contracts` (the generated
-    types + the pure-stdlib validator; the "contract root", analogous to `hermes_schema`).
-  - `tooling/bench-harness/pyproject.toml` → dist `eunomia-bench-harness`, import
-    `eunomia_bench_harness` (shell only in 0a).
-  - `uv.lock` committed; `uv sync --frozen --all-packages` is the install.
-- **C++ (PlatformIO, ESP32):** `firmware/coordinator/platformio.ini` with `[env:esp32]` (target board)
-  and `[env:native]` (platform = native) for the **off-target host tests** (the requirement that
-  `core/` is testable with no hardware). `src/main.cpp` is a shell; `test/test_ping_contract.cpp` is
-  the host-build test (doubles as the codegen C++ proof, §3.3). The native env includes the generated
-  header via `build_flags = -I${PROJECT_DIR}/../../contracts/_generated/cpp`.
-
-### 3.3 Stub `contracts/` + codegen proof  ← **the load-bearing 0a deliverable**
-**The example:** a trivial 2-field `ping` event (e.g. `seq:int`, `sent_unix:number`) — illustrative,
-throwaway, replaced by the real schemas in 0b. Lives at `contracts/_proof/ping.schema.yaml` (OQ-5).
-
-**The mechanism (one source → three targets), choice A (OQ-10):**
-1. **Source of truth:** one language-neutral **YAML** spec (a tiny field-list DSL: name, type,
-   required/warn).
-2. **Generator:** `contracts/codegen/generate.py` — a **small hand-written generator, kept under ~150
-   lines of obvious code**. If it ever starts needing real complexity (e.g. nested types, the
-   interface ports, conditional validation), I **STOP and flag** rather than growing it — I do not
-   reach for protobuf/JSON-Schema-as-source, because the contract's pure-stdlib hard-vs-warn semantics
-   + the hardware interface ports don't map cleanly onto them. It emits into `contracts/_generated/`
-   (committed):
-   - `cpp/eunomia_ping.h` — header-only `struct` + parse/serialize, **no deps, off-target compilable**.
-   - `python/eunomia_contracts/ping.py` — a dataclass + `validate(obj) -> hard_errors` /
-     `validate_full(obj) -> (errors, warnings)` (pure-stdlib, the CONTRACT §6 hard-vs-warn shape).
-   - `jsonschema/ping.schema.json` — the JSON Schema for the conformance gate (+ later web validation).
-3. **Invocation:** `make codegen` (→ `uv run python contracts/codegen/generate.py`). CI runs it then
-   asserts a clean `git diff` — the **codegen-drift gate** (OQ-6: artifacts committed + kept in sync).
-4. **Proof of correctness — the conformance harness:** golden fixtures under
-   `contracts/conformance/fixtures/ping/{valid,invalid}/`. `test_ping_conformance.py` (collected by the
-   normal `pytest` gate) checks all three targets agree: (a) the JSON Schema accepts every `valid/` and
-   rejects every `invalid/`; (b) the generated Python type round-trips the valid ones and `validate()`
-   rejects the invalid ones; (c) the C++ host test (`firmware/.../test_ping_contract.cpp`, via
-   `pio test -e native`) parses the same fixtures with the generated header and agrees. End-to-end
-   "one source, three targets, all consistent."
-
-### 3.4 Gates — five Python gates VERBATIM Hermes; C++ + cross-cutting added (OQ-7/OQ-11/OQ-13)
-Every gate is a Makefile target; CI calls the **same** commands so local == CI == Hermes.
-- **Python (exact Hermes commands, exact Hermes order):**
-  `uv run pytest` → `uv run ruff check .` → `uv run ruff format --check .` → `uv run mypy .` →
-  `uv run lint-imports`. All five **blocking**.
-- **C++:** `pio run -e esp32` (target build — **present but NON-blocking in 0a**, flips to blocking
-  when `coordinator/core/` lands), `pio test -e native` (off-target build+test — **blocking**),
-  `clang-format --dry-run -Werror` (**blocking**), `clang-tidy` (**NON-blocking in 0a**).
-- **Cross-cutting:** the conformance gate (the Python half is already inside `uv run pytest`; the C++
-  half is `pio test -e native` — the gate is their conjunction, **blocking**); the **codegen-drift**
-  gate (`make codegen && git diff --exit-code contracts/_generated`, **blocking**); the **camera-image
-  checksum gate stub** (`firmware/camera-image/checksum_gate.py` — no-op pass in 0a, becomes blocking
-  when camera-image is built).
-- **import-linter (Hermes pattern, OQ-11):** config in `[tool.importlinter]` (root pyproject).
-  `root_packages = ["eunomia_contracts", "eunomia_bench_harness"]`. Contracts in 0a:
-  - a `forbidden` contract making **`eunomia_contracts` import nothing internal** (source
-    `eunomia_contracts`, forbidden `eunomia_bench_harness` + every future `eunomia_*`) — the
-    contract-root rule, analogous to `hermes_schema`;
-  - every other package may import `eunomia_contracts` **only** (in 0a, `eunomia_bench_harness` has no
-    other internal package to import — the rule pre-exists for when they're added).
-  - A `layers` contract is **reserved** for when an internal pipeline ordering exists to declare (e.g.
-    ingest's `identity → join → qc → release`); none is declared in 0a.
-  - **`firmware/` is C++ — outside the Python import-linter.** Its boundary is the include structure
-    (`-I .../_generated/cpp` only; no upstream includes) + the conformance gate.
-
-### 3.5 Deterministic enforcement via hooks (OQ-8: NO commit-guard in 0a)
-In `.claude/settings.json`, scripts in `.claude/hooks/` referenced via `$CLAUDE_PROJECT_DIR`:
-- **PostToolUse** (matcher `Edit|Write`) → `format-edited.sh`: `ruff format` for `.py`,
-  `clang-format -i` for C/C++ — formatting never relies on the agent remembering. Non-blocking.
-- **PreToolUse** (matcher on file tools + `Bash`) → `block-secrets.sh`: **exit 2 to block** any
-  read/write of secrets (`.env`, `*.pem`, `*.key`, a credentials store). The only reliable hard block
-  per the docs; CONTRACT §2.3 forbids PSKs/secrets in the repo or on the card.
-- **The commit-guard hook is OMITTED in 0a — CI is the real gate.**
-
-### 3.6 Lean root `CLAUDE.md` (~100 lines / <~2,500 tokens)
-A navigation map written as **factual statements** (never out-of-band commands): what Eunomia is; the
-dependency law in one line; the gate commands (`make gates`); the plan-mode working agreement.
-Rarely-needed knowledge → `.claude/skills/*/SKILL.md`; path-scoped rules → `.claude/rules/*.md`.
-**`@`-imports (OQ-12, (b)):** `@`-import **only** the short `docs/CONTRIBUTING.md`; reference
-`CONTRACT.md` / `MODULE_MAP.md` / `SPEC.md` by **plain path** (read-on-demand) so the lean budget holds.
-
-### 3.7 `.claude/agents/` subagents (~30 lines each)
-- **`reviewer.md`** (required): read-only; diffs work-done against `plan.md` / `SPEC.md` and reports
-  discrepancies. Used to check 0a's implementation against this plan.
-- **`contract-conformance.md`** (optional, for 0b): validates an emitter/consumer against the
-  generated JSON Schema + golden fixtures.
-
-### 3.8 ADR — `docs/adr/0001-architecture.md` (outline now, written at implementation)
-Captures *this* architecture from the locked decisions:
-1. **Context** — the unification mandate: converge `data`/Styx Layer 0 + `x3-capture-kit` Layer 1/2 +
-   the specced flows/consoles into one clean monorepo.
-2. one polyglot monorepo (C++ firmware / Python services / web consoles).
-3. contract-as-spine + the dependency law (everything depends only on `contracts/`), enforced by the
-   per-language import-boundary check + the cross-language conformance gate.
-4. data topology — edge-authoritative event-sourced operational store on-site (B-8, A-2) + the
-   analytical system-of-record downstream (Hermes pins + ingests the release record).
-5. Eunomia FEEDS the cleaning/render layer (Hermes-side, on Hades) — shared audio-sync core, not
-   duplicated (CONTRACT §7).
-6. substrate ported-but-frozen (D-8/D-12) — interface-compatible, idempotent installer,
-   non-destructive merge.
-7. two-axis versioning + anti-drift (CONTRACT §5).
-8. consequences · alternatives · status. Cross-references C-9..C-12, B-8, B-9, D-8..D-12.
-
-### 3.9 Misc — `.gitignore`, root `README.md`, lockfiles
-- `.gitignore`: Python (`__pycache__/`, `.venv/`, `*.egg-info/`, `.mypy_cache/`, `.ruff_cache/`,
-  `.pytest_cache/`), PlatformIO (`.pio/`), secrets (`.env`, `*.pem`, `*.key`, `credentials/`).
-  **`contracts/_generated/` is NOT ignored — it is committed** (OQ-6).
-- root `README.md`: one screen — what Eunomia is + `make gates` + the plan-mode workflow.
-- lockfiles: `uv.lock` committed; PlatformIO pins versions inline in `platformio.ini`.
-
----
-
-## 4. The gate matrix
-
-| Gate | Language | Command (Makefile target) | Blocking? | Runs where |
-|---|---|---|---|---|
-| Unit tests | Python | `uv run pytest` | **yes** | local + CI |
-| Lint | Python | `uv run ruff check .` | **yes** | local + CI |
-| Format check | Python | `uv run ruff format --check .` | **yes** | local + CI |
-| Types | Python | `uv run mypy .` | **yes** | local + CI |
-| Import boundary | Python | `uv run lint-imports` | **yes** | local + CI |
-| Build (target) | C++ | `pio run -e esp32` | **no in 0a** → blocking when `core/` lands | local + CI |
-| Build + test (off-target) | C++ | `pio test -e native` | **yes** | local + CI |
-| Format check | C++ | `clang-format --dry-run -Werror` | **yes** | local + CI |
-| Static analysis | C++ | `clang-tidy` | **no in 0a** | local + CI |
-| **Conformance** | cross | `uv run pytest` (py+schema) ∧ `pio test -e native` (cpp) | **yes** | local + CI |
-| **Codegen drift** | cross | `make codegen && git diff --exit-code contracts/_generated` | **yes** | local + CI |
-| Camera-image checksum | cross | `python firmware/camera-image/checksum_gate.py` | stub/no-op in 0a; blocking later | local + CI |
-
-The five Python rows are **byte-for-byte the Hermes gates, in Hermes order**. `make gates` runs all
-blocking gates.
-
-**CI (`.github/workflows/ci.yml`) — mirrors Hermes:** ONE `gates` job on `ubuntu-latest`:
-`astral-sh/setup-uv@v5` (`enable-cache: true`) → `uv python install 3.12` → `uv sync --frozen
---all-packages` → the **five Python gate steps in the order above** (identical to Hermes). The C++,
-conformance, and codegen-drift checks are **additional steps/jobs** (a separate `cpp` job with the
-PlatformIO + clang toolchain, and a codegen-drift step), so the five Python gates stay identical to
-Hermes.
-
----
-
-## 5. The hooks plan
-
-| Event | Matcher | What it does | Blocks? |
-|---|---|---|---|
-| PostToolUse | `Edit\|Write` | `format-edited.sh`: `ruff format <file>` for `.py`; `clang-format -i <file>` for `.c/.cpp/.h/.hpp`; no-op otherwise | no (formats only) |
-| PreToolUse | `Read\|Edit\|Write\|Bash` | `block-secrets.sh`: if the target path matches `.env`, `*.pem`, `*.key`, `*credentials*`, **exit 2** to block | **yes (exit 2)** |
-
-Commit-guard hook **omitted** in 0a (OQ-8). All hook scripts live in `.claude/hooks/`, invoked with
-`$CLAUDE_PROJECT_DIR`-prefixed paths.
-
----
-
-## 6. Resolution record (your annotations, folded in)
-
-| OQ | Decision | Where applied |
+| | **0b (recommend NOW)** | **0c (recommend NEXT)** |
 |---|---|---|
-| OQ-1 | (a) rename `Docs/` → `docs/`, two-step case-only `git mv` | §0, §2 |
-| OQ-2 | (a) author `CONTRIBUTING.md` from stated conventions only | §0, §2, §3.6 |
-| OQ-3 | (a) thin `docs/BUILD_PLAN.md`, scope = Run 0a; **mirror Hermes's `docs/BUILD_PLAN.md`** | §2 |
-| OQ-4 | (a) **mirror Hermes Python toolchain exactly** — version bounds, gate order, defaults-only ruff/mypy, pytest config, CI shape, `eunomia-<name>`/`eunomia_<name>` naming | §3.2, §4, CI plan |
-| OQ-5 | (a) stub at `contracts/_proof/ping.*`, throwaway | §2, §3.3 |
-| OQ-6 | (a) commit `_generated/` + codegen-drift gate | §2, §3.3, §3.9, §4 |
-| OQ-7 | Makefile, with the **verbatim Hermes `uv run` commands** | §3.4, §4 |
-| OQ-8 | (a) **omit** the commit-guard hook in 0a | §2, §3.5, §5 |
-| OQ-9 | (a) keep `DECISION_REGISTER.md`, no rename | §0 |
-| OQ-10 | A — neutral YAML + small hand-written generator, **<~150 lines, stop-and-flag if it needs real complexity** | §3.3 |
-| OQ-11 | Hermes import-linter pattern: `root_packages` = every import name; `forbidden` so `eunomia_contracts` imports nothing internal; others import it only; `layers` reserved; firmware is C++/out of scope | §3.4 |
-| OQ-12 | (b) `@`-import only `CONTRIBUTING.md`; others by path | §3.6 |
-| OQ-13 | **split** — native build+test blocking; esp32 target build present but non-blocking in 0a (flip when `core/` lands); clang-tidy non-blocking in 0a | §3.2, §3.4, §4 |
-| OQ-14 | `consoles/` dirs + READMEs only, no web stack chosen | §2, §3.1 |
+| **Areas** | sidecar §2, release §4, events §3/§6, versioning §5, the hybrid validator, PyYAML pin, conformance | operational model §3 (9 entities, events, as-of), identity-precedence/crosswalk/join *logic*, interfaces |
+| **Shape** | **records** — flat-ish JSON objects with fields. Fits the 0a field-list DSL with bounded extensions (enum, nullable, array, `minLength`, one conditional rule). | **a system model + operation signatures** — event-sourced entities with temporal resolution, *and* interfaces (method signatures, not data). A genuinely different shape than the record DSL. |
+| **Urgency** | The coordinator **writes** the sidecar and **emits** events *now*; Hermes **pins** release *now*. The live external surface. | Consumed by ingest/identity/join + firmware ports — all **later runs** (Run B+). Not on any current critical path. |
+| **Generator cost** | "more field-types" + **one** bounded conditional rule. Stays near the budget. | nesting/recursion for entity graphs + an interface-description format that does **not** fall out of the field DSL — the most likely STOP-and-flag trigger. |
+| **Reviewability** | One coherent diff: "does the on-card/emitted/ingested record match the doc, and does hard-vs-warn work?" | One coherent diff: "is the operational store + the seams modeled right?" |
 
-**Two small Hermes-mirror confirmations** (I chose a faithful adaptation; correct me if Hermes
-differs):
-1. **`testpaths`** — Hermes's `["tests","packages"]` adapts to Eunomia's *top-level* members as
-   `["contracts","tooling"]` in 0a (no `packages/` parent dir, no top-level `tests/` in 0a). If Hermes
-   actually nests members under `packages/`, I'll match that layout instead.
-2. **import-linter config location** — I put `[tool.importlinter]` in the **root `pyproject.toml`**
-   (import-linter needs config to do anything; this is the one tool that *does* get a config block,
-   unlike ruff/mypy). If Hermes keeps a separate `.importlinter`/`setup.cfg`, I'll match that file.
+**Why the seam is real (not arbitrary):** the release record (§4) is the *frozen join* of sidecar +
+operational. But release defines its **own** shape — denormalized frozen fields + **id references**
+(`capture_stack_id`, `calibration_id`, `person_id`, `session_id`). It does **not** need the
+operational entity *schemas* to exist in order to define itself; it needs only the id-reference
+fields. So 0b can encode release's shape fully, and 0c encodes the entities those ids resolve to.
+Identity precedence, crosswalk, and the dual-signal join are **join-time, multi-entity logic** — they
+are not validatable on a single record anyway, so they belong with the operational model in 0c (as
+typed entities + documented rules; the *implementation* that runs at ingest is a still-later run, per
+the task's own out-of-scope note).
+
+**Recommendation: SPLIT.** Run 0b = the record surface + the hybrid validator (this plan, §3–§8 as
+written). Run 0c = operational model + interfaces. **Mo decides.** If Mo prefers ONE run, the plan
+still holds — the operational + interfaces sections (§4.2, §4.4) are written so they can be pulled in —
+but expect the generator to hit the STOP-and-flag line on the interface shape (§6, §9-OQ-1), which is
+itself the signal to pause and reconsider codegen. The rest of this plan is written for the **split**
+(0b) scope, with the deferred areas outlined so the decision is reversible.
 
 ---
 
-## 7. What Run 0a deliberately does NOT do (boundary on record)
+## 3. The directory tree after 0b
 
-- **Does NOT encode the real contract** into `contracts/sidecar|operational|release|interfaces|events/`
-  — that is **Run 0b**. Only the throwaway `ping` stub goes in now, to prove the codegen harness.
-- **Does NOT write any** firmware logic (no trigger state machine, transport, or UI), ingest logic,
-  edge/store logic, or console code. Only build shells + READMEs + the codegen/conformance proof.
-- **Does NOT copy real substrate scripts.** `substrate/` gets its directory + frozen-interface README +
-  a statement of where the existing Styx host config *will* be vendored (unchanged) — but no ZFS /
-  Sipolar / udev / systemd scripts are copied in 0a (none are present in the repo to vendor).
-- **Does NOT pick** the web stack, edge-sync policy, the Hermes contract-consumption mechanism, console
-  auth/PII handling, or QC thresholds — all explicitly deferred (CONTRACT §8, MODULE_MAP open-Qs).
-- **Does NOT** open a PR, force-push, or merge. Per conventions: report gate results + a change summary
-  and wait for your go-ahead first.
+Annotated: **`NEW`** = created in 0b · **`0a`** = built in 0a, reused · **`0a→0b`** = 0a file
+modified · **`DEL`** = removed in 0b · **`0c`** = stays stubbed for the next run (README only).
+
+```
+contracts/
+├── README.md                                   0a→0b  (drop the _proof row; note the hybrid validator)
+├── pyproject.toml                              0a      (UNCHANGED — eunomia_contracts stays dependencies=[])
+├── codegen/
+│   ├── generate.py                             0a→0b  (driver + source manifest; per-target emitters — §6)
+│   ├── emitters/  (jsonschema.py·python.py·cpp.py)  NEW?  (only if the monolith exceeds budget — §6, OQ-8 note)
+│   ├── README.md                               0a→0b  (new invocation; the budget verdict)
+│   └── templates/
+│       ├── header.h.tmpl                        0a→0b  (string/enum members; nested left out — OQ-5)
+│       └── module.py.tmpl                       0a→0b  (_HARD/_WARN tables, enum/non-empty/conditional checks)
+├── _proof/                                      DEL     (ping graduates into events/ — §4.5)
+│   └── ping.schema.yaml                         DEL
+├── sidecar/
+│   ├── eunomia-sidecar.schema.yaml              NEW     (CONTRACT §2 — the on-card record)
+│   └── README.md                               0a→0b
+├── release/
+│   ├── eunomia-release.schema.yaml              NEW     (CONTRACT §4 — Hermes-pinned surface)
+│   └── README.md                               0a→0b
+├── events/
+│   ├── eunomia-telemetry-event.schema.yaml      NEW     (started/stopped/camera-dropped/recording-suspect)
+│   ├── eunomia-sync-delta.schema.yaml           NEW     (the operational-sync delta — §6)
+│   └── README.md                               0a→0b
+├── operational/   README.md                     0c      (stub; filled in 0c — §4.2)
+├── interfaces/    README.md                     0c      (stub; filled in 0c — §4.4)
+├── overlay/                                     NEW?    (the hand-written pure-stdlib semantics — placement OQ-3)
+│   └── eunomia_overlay/ (…)
+├── _generated/                                  0a→0b  (regenerated; ping artifacts replaced)
+│   ├── cpp/        eunomia_sidecar.h · eunomia_telemetry_event.h          NEW  (firmware-relevant only — OQ-5)
+│   │               eunomia_ping.h                                          DEL
+│   ├── python/eunomia_contracts/  sidecar.py · release.py · events.py · __init__.py   NEW (ping.py DEL)
+│   └── jsonschema/  eunomia-sidecar.schema.json · eunomia-release.schema.json
+│                    eunomia-telemetry-event.schema.json · eunomia-sync-delta.schema.json   NEW (ping.* DEL)
+└── conformance/
+    ├── fixtures/
+    │   ├── ping/                                DEL
+    │   ├── sidecar/{valid,invalid,warn}/        NEW
+    │   ├── release/{valid,invalid,warn}/        NEW
+    │   └── events/{valid,invalid,warn}/         NEW
+    └── test_conformance.py                      NEW (generalizes test_ping_conformance.py — uses jsonschema)
+
+firmware/coordinator/
+├── platformio.ini                              0a→0b  (EUNOMIA_FIXTURES_DIR → sidecar/events; include both headers)
+└── test/test_contract.cpp                       NEW (generalizes test_ping_contract.cpp over the real headers)
+```
+
+---
+
+## 4. Per-area plan
+
+For each area: the source file(s), what it encodes (outline — fields referenced to CONTRACT, not
+re-typed), and the decisions made.
+
+### 4.1 `contracts/sidecar/` — `eunomia-sidecar` (CONTRACT §2) — **0b**
+
+- **Source:** `sidecar/eunomia-sidecar.schema.yaml`, schema id `eunomia-sidecar/v1`.
+- **Encodes (per §2.2, by group):** top-level HARD `schema`; top-level WARN `record_format_version`;
+  `ordering` (`seq` HARD, `global_episode_seq` HARD); the `identity` group (HARD set: `camera_id`,
+  `kit_id`, `side`, `operator_id`, `station_id`, `task_id`, `task_name`, `session_id`, `episode_id`
+  (UUIDv4), `rotation_id`; the **only-two HARD-non-empty**: `kit_id`, `side`; v1-extra HARD `prompt`,
+  `task_source`; WARN: `episode_ordinal`, `bimanual_episode_id`, `display_id` (derived, never-a-key),
+  `calibration_id`, `record_settings`, `mount`, `assignment_source`); the `timing` object
+  (`started_unix`/`stopped_unix`/`start_skew_ms`, `camera_clock` WARN provenance-only); `provenance`
+  (all WARN: `camera_firmware`, `fob_id`, `fob_build`, `kit_version`, `site_id`, `modality`); the
+  `outcome` group (`stop_reason` enum WARN, `archive` WARN, **net-new** `recording_suspect` WARN); the
+  `files` group (`files.back` HARD pointer).
+- **Decisions:** (a) `episode_id`=UUIDv4 pairing key, `display_id`=derived WARN never-a-key
+  (CONTRACT §7 resolved); (b) `task_source` enum `nand_staged|sd_assignment|none`; `stop_reason` enum
+  `operator|timer|card_full|battery|error|overheat`; `modality` enum `umi|teleop`; `side` enum
+  `left|right`; (c) `kit_id`+`side` get `minLength:1` (the only non-empty rule); (d) the v1-extra
+  conditional (`prompt`,`task_source` required when `schema` declares v1+) — OQ-4.
+- **OQ-2 confirm result (the as-built was reached at `~/Desktop/Pantheon/X3_Capture_Kit/`).** The
+  proven writer `pantheon-x3-sidecar/v2` nests **`identity` as an object** (not just `timing`+`files`),
+  stores `seq` as a zero-padded **string**, and carries a top-level camera-derived `timestamp`. This
+  **revises** my OQ-2 sketch. Reconciliation (CONTRACT wins; CONTRACT §2 explicitly "cleans namespacing
+  of the field groups"): encode the §2.2 groups as **nested objects** — `identity`(HARD),
+  `timing`(WARN), `provenance`(WARN), `outcome`(WARN), `files`(HARD) — with `schema`,
+  `record_format_version`, `seq`, `global_episode_seq` as **top-level scalars**. Judgment calls flagged
+  in the report's faithfulness check: (i) `provenance`/`outcome` nested per CONTRACT's clean-namespacing
+  (the as-built scattered these under `identity`/top-level); (ii) `seq` encoded **numeric** per CONTRACT
+  "(numeric)" — the as-built used a zero-padded string; (iii) **no** top-level `timestamp` — CONTRACT
+  drops camera-clock-derived time as poison (the as-built had a hard `timestamp`). Firmware needs the
+  C++ target here (it *writes* the sidecar) — scoped per OQ-5.
+
+### 4.2 `contracts/operational/` — event-sourced model (CONTRACT §3) — **recommend 0c** (outlined)
+
+If pulled into 0b, this encodes the 9 entities (`person`, `hardware_unit` (order→batch→unit→
+lifecycle), `kit`, `calibration` (scope `none|fleet|per_camera`), `task`, `session` (`fob_session_id`),
+`capture_stack`, `footage_reference` (`on_card→on_styx→shipped→on_hades→purged`), and `episode` (the
+join point, §3.2)) as typed entities + append-only event records, plus the documented rules: identity
+precedence (§3.3), crosswalk + serial-retargeting (§3.4), task precedence (§3.5), dual-signal join
+(§3.6). **What becomes what:** the *entities/events* → schema; the *enums* (scope, footage_state,
+pairing_method) → schema; **identity precedence, crosswalk, retargeting, the join tiebreaks → typed
+fields + documentation only** (they are join-time, multi-entity logic — not single-record-validatable;
+the *implementation* is a later run). This area is the generator's nesting/graph stressor and is on no
+current critical path → **deferred to 0c (OQ-1).**
+
+### 4.3 `contracts/release/` — release metadata (CONTRACT §4) — **0b**
+
+- **Source:** `release/eunomia-release.schema.yaml`, schema id `eunomia-release/v1`.
+- **Encodes (per §4.1, by group):** Identity (frozen) incl. the id references; Time (frozen:
+  `recorded_at`, `camera_clock` provenance-only, `ingested_at`, `time_confidence` enum
+  `ntp_synced|unsynced_monotonic`); Capture stack (frozen); QC (derived, **OPEN taxonomy** —
+  `qc_flags` is an array of strings with **no enum lock**, `qc_reasons`, `qc_score`; plus status-only
+  `probe_failed`/`decode_skipped`); Sync (deferred-null `sync_offset_ms`, `sync_confidence`); State
+  (`paired`, `void`+`void_reason`, `needs_review`, `archive`, `recording_suspect`, `label_source`);
+  Deferred-null-at-ingest (`human_label`, `task_completed`, the sync pair) → modeled **nullable**.
+- **Decisions:** (a) **This is the external contract surface** — its `schema` string is what Hermes
+  pins (§5); flagged as such in the README and the changelog. (b) `qc_flags` stays open (array of
+  string, never an enum) — a closed taxonomy here would be a faithfulness bug. (c) deferred-null
+  fields are `["null", T]` unions, present-but-null at ingest. (d) release references operational
+  entities by **id only** — so it is fully encodable in 0b without the §3 entities existing yet (§2
+  seam). No C++ target (Hermes/ingest are Python; firmware never touches release — OQ-5).
+
+### 4.4 `contracts/interfaces/` — `CoordinatorPort` / `CaptureDevicePort` — **recommend 0c** (outlined)
+
+These are **operation signatures, not records** — the 0a field-list DSL does not represent them. The
+generator would need a neutral *interface-description* format emitted as a C++ abstract header + a
+Python `Protocol`/ABC. That source-format choice does **not** fall out of the record DSL (it is a
+different shape) → it is its own design question (**OQ-1** rolls this into the 0c split; if 0b must
+include it, the interface-source format becomes a blocking sub-question and the generator would likely
+trip STOP-and-flag). The README stays the 0c stub; the port surface is already sketched in
+`contracts/interfaces/README.md`.
+
+### 4.5 `contracts/events/` — telemetry + sync-delta (§3 events / §6) — **0b**
+
+- **Sources:** `events/eunomia-telemetry-event.schema.yaml` (`eunomia-telemetry-event/v1`) and
+  `events/eunomia-sync-delta.schema.yaml` (`eunomia-sync-delta/v1`).
+- **Encodes:** the god's-view telemetry event (`started`/`stopped`/`camera-dropped`/
+  `recording-suspect`) — modeled as **one record with an `event` enum discriminator + conditional
+  fields**, mirroring the as-built `pantheon-trigger-episode/v1` `{event, kit_id, fob_session_id,
+  ordinal, wallclock, ms, station, prompt, cams[], sent, total}` shape (BUILD_PLAN learnings) — and the
+  operational-sync delta format used by `edge/sync/`. See **OQ-7** (one polymorphic event vs one
+  source per type).
+- **Decisions:** the `ping` proof **graduates** here: `_proof/ping.schema.yaml`, the generated
+  `*ping*` artifacts, the `fixtures/ping/`, `test_ping_conformance.py`, the C++ `test_ping_contract.cpp`,
+  and the `platformio.ini` `EUNOMIA_FIXTURES_DIR` path are all removed/repointed to the real event
+  (enumerated in §3 tree + §8). Firmware needs the C++ target here (it *emits* telemetry).
+
+### 4.6 Two-axis versioning (CONTRACT §5) — **0b, cross-cutting**
+
+- `schema` (string, additive semver, parser-facing) and `record_format_version` (int, writer-owned,
+  forensic) are encoded as first-class fields on the sidecar (and the release carries its own `schema`
+  + the forensic handles). **The validator uses `schema` to know which fields to expect** — this is
+  the conditional-presence machinery (the v1-extra hard set), realized as a JSON Schema `if/then` keyed
+  on the `schema` string **and** mirrored in the stdlib validator (§5, OQ-4). Additive-only is enforced
+  by discipline + the conformance rule that an older fixture must still validate under the current
+  schema (a `warn/` fixture omitting a newer field stays valid).
+
+### 4.7 Conformance — extend the harness (CONTRACT §6) — **0b** (full design in §5, §7)
+
+---
+
+## 5. The hybrid-validator design (the piece to scrutinize)
+
+The locked **Option C** is two validators sharing one severity model. The key clarification: **JSON
+Schema only knows valid/invalid; the hard-vs-warn *severity* is a second axis the overlay owns.**
+
+### 5.1 The two validators (which is which)
+
+| | **Shipped stdlib validator** | **Dev/CI hybrid conformance validator** |
+|---|---|---|
+| **Where it runs** | cam-side / ingest / edge — **in the field** | the CI conformance gate only |
+| **Deps** | **pure-stdlib** (no `jsonschema`) | `jsonschema` (Draft 2020-12) + the stdlib overlay |
+| **What it is** | generated `eunomia_contracts.<entity>.validate(obj)->hard_errors` and `validate_full(obj)->(hard_errors, warnings)` + the overlay | a dev harness in `conformance/` that validates fixtures against the emitted JSON Schema with the real lib, then applies the overlay |
+| **Structural layer** | generated purpose-built field checks (types from `_HARD`/`_WARN` tables) — **not** a hand-rolled JSON-Schema interpreter | the **real `jsonschema` library** against `_generated/jsonschema/*.json` |
+
+`jsonschema` lives in a **dev/validation dependency group only** (§8). It never enters
+`contracts/pyproject.toml` (which stays `dependencies = []`), and the conformance test is **not** part
+of the shipped `eunomia_contracts` wheel (the wheel packages only `_generated/python/eunomia_contracts`
+[+ the overlay, OQ-3]). So the field validator stays pure-stdlib by construction.
+
+The 0a hand-rolled stdlib schema-checker in `test_ping_conformance.py` (`_schema_errors`) is
+**retired**: the CI structural layer is now the real `jsonschema` lib. The *shipped* validator stays
+stdlib but is purpose-built (it checks the contract directly from generated tables), not a generic
+JSON-Schema interpreter — that is the distinction the locked decision draws (it is why the shipped
+validator won't "diverge silently on nested/enum/conditional fields").
+
+### 5.2 What each layer covers
+
+- **JSON Schema layer (emitted, Draft 2020-12, browser-validatable with ajv):** types, enums,
+  nesting, nullable (`["null", T]`), arrays, required-vs-optional (`required` = the **hard** fields
+  only), `minLength:1` (kit_id/side), and conditional presence (`if {schema matches v1+} then
+  {required: [prompt, task_source]}`, OQ-4). **No custom dialect** in the structural layer — pure
+  Draft 2020-12 so the consoles' ajv validates the same file.
+- **stdlib overlay (pure-stdlib, the Eunomia semantics JSON Schema can't express) — OQ-3 sharp
+  boundary: declarative-DATA is generated, actual LOGIC is hand-written.**
+  1. **The hard-vs-warn severity split (generated DATA):** the partition is driven by a generated
+     **severity table** (field-path → `hard|warn`, the `_HARD`/`_WARN` tables — pure data). A
+     *missing* hard field or a *malformed* hard field → **hard error**. A *malformed warn field* (a
+     structural type error on a warn path) → **downgraded to a warning**. A *missing warn field* →
+     not an error (absence is surfaced as a triage advisory, not invalidating). This is the
+     "warn-only downgrade." The enum value-sets, `minLength`, and the **one** conditional-presence
+     rule are likewise generated as simple **table lookups**.
+  2. **Bespoke cross-field rules (hand-written LOGIC, NOT generated):** anything that is real logic —
+     a cross-field dependency like *`void == true ⇒ void_reason present & non-empty`* (release,
+     grounded in §4.1 "void+void_reason") — is **hand-written in a small pure-stdlib overlay module**
+     (`eunomia_contracts._semantics`, shipped in the contracts wheel). It is **not** emitted from a
+     YAML rule-DSL: generating a severity table is safe data-driven codegen; generating arbitrary
+     cross-field logic is a mini rules-engine and exactly what the generator-complexity STOP-and-flag
+     is meant to catch (OQ-3). The hand-written overlay stays small and pure-stdlib.
+  3. **Honest scope flag:** identity precedence / "camera-clock-is-poison" / the join tiebreaks are
+     *join-time, multi-entity* rules — **not mechanically checkable on one record**. They are encoded
+     as **typed fields + documentation** now; their enforcing logic is 0c/ingest. The overlay's
+     mechanically-enforceable share in 0b is: the (generated) severity partition + enum/non-empty/
+     conditional checks, plus the (hand-written) `void⇒void_reason` cross-field rule.
+
+### 5.3 How hard-vs-warn shows in validator output
+
+`validate(obj) -> list[str]` (hard errors only — the field-side go/no-go) and `validate_full(obj) ->
+(hard_errors, warnings)`. A record with a malformed **warn** field returns `([], ["warn: <field> …"])`
+→ **valid-with-warnings** (accepted, flagged). A record missing a **hard** field returns
+`(["hard: missing <field>"], …)` → **rejected**. The conformance harness proves the shipped stdlib
+verdict equals the `jsonschema`+overlay verdict on every fixture.
+
+### 5.4 How `jsonschema` wires into the gate
+
+`conformance/test_conformance.py` (run by the existing `uv run pytest`, gate #1): for each entity,
+load `_generated/jsonschema/<entity>.schema.json`, build a `jsonschema` validator, and assert (a) it
+accepts every `valid/` + `warn/` and rejects every `invalid/`; (b) the overlay classifies `warn/` as
+valid-with-warnings and hard failures as rejected — including a fixture whose **only** problem is a
+warn field (proving the downgrade); (c) the generated Python validator and the C++ header agree with
+`jsonschema` on the structural layer. No new gate command — it rides the existing pytest gate (§8).
+
+---
+
+## 6. The codegen plan
+
+- **Source manifest:** `generate.py` stops pointing at the single `_proof` file and iterates a
+  manifest of `contracts/<area>/*.schema.yaml` sources → for each, emit the 3 targets (C++ only for
+  firmware-relevant records — OQ-5). Output stays deterministic (sorted keys, no timestamps) so drift
+  is meaningful.
+- **DSL extensions needed (assessment against the ~150-line budget):**
+
+  | Extension | Classification | Budget read |
+  |---|---|---|
+  | `enum` (scalar value set) | more field-types | cheap (a `TYPES`-style table + an `enum` key) |
+  | `nullable` / `["null", T]` | more field-types | cheap |
+  | `array of scalar` (qc_flags, cams[]) | more field-types | cheap |
+  | `minLength:1` (non-empty) | a field attribute | cheap |
+  | **conditional presence** (v1-extra hard set) | **one bounded rule**, not a field-type | a single declarative block (`conditional_required: {when_schema_min: 1, fields: […]}`) → JSON Schema `if/then` + a stdlib check. Borderline but **bounded to one rule** |
+  | **nesting** (timing, files) | borderline | kept **shallow** (match as-built, OQ-2); one level, no general recursion |
+  | **interfaces** (signatures) | **real complexity / different shape** | **does not fit** — the STOP-and-flag trigger → deferred to 0c (OQ-1) |
+
+- **The STOP-and-flag verdict (the approved rule holds):** with the **split** (OQ-1), 0b's additions
+  are "more field-types + one bounded conditional + shallow nesting" — they pressure the budget but do
+  **not** require a framework. **Recommended structure to absorb the pressure without growing a
+  monolith (OQ-8):** split `generate.py` into a thin driver + three per-target emitters
+  (`emitters/{jsonschema,python,cpp}.py`) sharing one field-DSL parser (the BUILD_PLAN carry-forward
+  #3). Each emitter stays individually obvious and small; the budget is read **per emitter**, not as
+  one 150-line file. **If, while implementing, any single emitter needs real recursion / a real type
+  system to handle the 0b records, I STOP and flag it in the report** rather than growing it — that
+  pressure is the signal to reconsider codegen (a decision for Mo). The interface shape is already
+  identified as over the line, hence the 0c split.
+- **PyYAML pinning (hermetic codegen):** add a pinned **`codegen` dependency group** to the root
+  `pyproject.toml` (`pyyaml>=6.0,<7.0`) and change `make codegen` from `uv run --no-project --with
+  pyyaml …` to a pinned-group invocation. **Wrinkle (OQ-6):** codegen must still run *before* `uv sync`
+  builds `eunomia-contracts` (its package *is* the generated tree) — so the invocation must install the
+  group without building the project. Recommended: `uv run --no-project --only-group codegen python
+  contracts/codegen/generate.py`, verified at implement-time to resolve the chicken-egg; fallback is a
+  pinned `contracts/codegen/requirements.txt` via `--with-requirements`. CI installs this group before
+  the drift gate.
+
+---
+
+## 7. Conformance fixtures plan
+
+Per entity (sidecar, release, events), three fixture classes — the **`warn/`** class is new (the
+severity split):
+
+| Class | What it contains | Expected verdict |
+|---|---|---|
+| `valid/` | a full record + a minimal-hard-only record | `jsonschema` accepts; overlay → `([], [])` |
+| `invalid/` | missing a hard field; **empty** `kit_id`/`side`; missing `schema`; wrong-typed hard field; v1 file missing `prompt`/`task_source` | `jsonschema` rejects; overlay → hard_errors ≠ [] |
+| `warn/` | missing a warn field (e.g. `episode_ordinal`); **malformed** warn field (wrong type — the downgrade demo); `recording_suspect`/`archive` set | `jsonschema` *may* flag the malformed-warn structural error; overlay **downgrades** → `([], ["warn: …"])` = **valid-with-warnings** |
+
+**Proving the three targets agree** (per entity, in `test_conformance.py`): (a) real `jsonschema`
+accepts every `valid/`+`warn/`, rejects every `invalid/`; (b) the generated Python `validate_full`
+returns the same accept/reject *and* the same hard-vs-warn partition (the shipped stdlib validator does
+not diverge from the canonical schema); (c) the C++ header parses the same `valid/`+`warn/` fixtures
+(structural subset it owns — OQ-5) via `pio test -e native`. Per-entity accept/reject/warn counts go in
+the report. The **malformed-warn fixture is the headline demo** the report calls out (warn-vs-hard
+working). The codegen-drift gate must stay green on the committed tree.
+
+---
+
+## 8. Gate + drift impact
+
+**The 5 Hermes Python gates stay byte-identical in command and order** — confirmed:
+
+```
+uv run pytest  →  uv run ruff check .  →  uv run ruff format --check .  →  uv run mypy .  →  uv run lint-imports
+```
+
+What changes (none of it alters those 5 command strings):
+
+| Change | Detail |
+|---|---|
+| New dev dep | `jsonschema>=4.0,<5.0` in a dev/validation group; likely `types-jsonschema` too so `mypy .` stays clean (flag/verify) |
+| Codegen invocation | `make codegen` → pinned `codegen` group (§6, OQ-6); CI installs it before `make drift` |
+| `make codegen` produces more files | `_generated/{cpp,python,jsonschema}` gain the real entities, lose the `ping` ones; **`make drift` (codegen && git diff --exit-code _generated) must be 0** |
+| pytest scope | `conformance/test_conformance.py` replaces `test_ping_conformance.py`; uses `jsonschema`; still under `testpaths=["contracts","tooling"]` |
+| C++ gate | `pio test -e native` now builds `test_contract.cpp` over the real headers; `platformio.ini` `EUNOMIA_FIXTURES_DIR` repointed; **still blocking**. esp32 target + clang-tidy **stay non-blocking** in 0b |
+| import-linter | `eunomia_contracts` still "imports nothing internal"; if the overlay is a separate package (OQ-3) it is added to `root_packages` with its own forbidden/independence contract; otherwise unchanged |
+| ruff/format | generated output **and** the hand-written overlay + conformance test must be ruff- and ruff-format-clean as emitted/written |
+
+`contracts/pyproject.toml` stays `dependencies = []` (pure-stdlib shipped validator). No new blocking
+gates; the hybrid validator rides the existing pytest gate.
+
+---
+
+## 9. Open Questions — ALL RESOLVED (Mo's annotations folded in)
+
+**OQ-1 — ONE run or split? → RESOLVED: SPLIT (A).** 0b = record surface + hybrid validator; 0c =
+operational model + interfaces. The release-via-id-references seam is the cut. Sequencing note: 0b
+unblocks firmware *starting* (sidecar + events C++ headers it writes/emits); 0c unblocks firmware's
+*port-based* structure (Coordinator/CaptureDevice ports = the swappable-transport seam).
+
+**OQ-2 — sidecar JSON shape → RESOLVED: match the as-built nesting, reconciled to CONTRACT's clean
+groups.** Confirmed against the reachable as-built (§4.1): `identity` is nested too (not just
+`timing`+`files`). Encode the §2.2 groups as nested objects (`identity`/`timing`/`provenance`/
+`outcome`/`files`) + top-level scalars (`schema`/`record_format_version`/`seq`/`global_episode_seq`).
+Generator nesting stays **one level, no recursion**. Judgment calls (provenance/outcome nesting, `seq`
+numeric, no `timestamp`) flagged in §4.1 + the report.
+
+**OQ-3 — overlay placement → RESOLVED: (A) with a SHARP boundary.** Declarative-in-source is limited to
+what is essentially **DATA** — the severity table (field→hard|warn), enum value-sets, `minLength`, and
+the **one** conditional-presence rule — all generated into simple **table lookups**. Anything that is
+actual **LOGIC** (cross-field rules like `void ⇒ void_reason`) is **hand-written** in the small
+pure-stdlib overlay module (`eunomia_contracts._semantics`), **NOT** generated from a YAML rule-DSL
+(generating arbitrary cross-field logic is a mini rules-engine — the STOP-and-flag target). The
+hand-written overlay stays small + pure-stdlib and ships in the contracts wheel.
+
+**OQ-4 — v1-extra conditional → RESOLVED: (A) semver pattern.** `^eunomia-sidecar/v[1-9][0-9]*$` ⇒
+require the v1-extra hard set, in `if/then`; the stdlib side parses the int and applies `>= 1`.
+
+**OQ-5 — C++ target scope → RESOLVED: (A).** C++ emitted only for firmware-relevant records (sidecar +
+events), scoped to struct + serialize + flat scalar/string parse, **no nested parse**. Release +
+(0c) operational are Python+JSON-Schema only. The C++ structural-subset scope is stated honestly in
+the conformance report.
+
+**OQ-6 — PyYAML codegen invocation → RESOLVED: (A, fallback B).** `uv run --no-project --only-group
+codegen …`; verify it resolves a group without building the project (the chicken-egg). Fallback: pinned
+`contracts/codegen/requirements.txt` via `--with-requirements`. Requirement (pinned, hermetic,
+CI-installed-before-drift) is fixed; incantation confirmed at implement-time.
+
+**OQ-7 — events shape → RESOLVED: (A).** One polymorphic telemetry-event record with an `event` enum
+discriminator + conditional fields, mirroring `pantheon-trigger-episode/v1`. Sync-delta is its own
+source.
+
+**OQ-8 — generator structure → RESOLVED: (B if the monolith crosses ~150 lines while staying
+obvious).** Driver + `emitters/{jsonschema,python,cpp}` sharing one field-DSL parser; budget read **per
+emitter**. STOP-and-flag still governs real-complexity growth in any single emitter.
+
+---
+
+## 10. What 0b deliberately does NOT do (restated)
+
+- **No module logic** — no firmware trigger state machine, no ingest/identity/join/QC implementation,
+  no edge/store, no consoles. 0b is the *contract*, not its consumers. The dual-signal join's *rules*
+  are encoded (as types + documentation; in 0c with the operational model) — the join *implementation*
+  that runs at ingest is a later run.
+- **No substrate scripts, no web stack, no Hermes-side cleaning code.**
+- **Does not pick the Hermes contract-consumption mechanism** (package vs submodule vs vendored) — 0b
+  just makes `release/` the clean, pinned surface.
+- **Recommended-deferred to 0c (OQ-1):** the full operational model (§3 entities/events/as-of, the
+  precedence/crosswalk/join *logic*) and the interfaces (`CoordinatorPort`/`CaptureDevicePort`).
+- **Does not grow the generator into a framework** — if the 0b records push any emitter into real
+  complexity, the run STOPS and flags rather than absorbing it (§6).
 
 ---
 

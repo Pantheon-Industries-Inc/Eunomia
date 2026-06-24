@@ -3,8 +3,8 @@ name = "eunomia"
 version = "0.0.0"
 description = "Eunomia monorepo — thin root meta-package. Real code lives in the workspace members."
 requires-python = ">=3.12"
-# No runtime deps: the codegen script fetches PyYAML ephemerally (`uv run --no-project
-# --with pyyaml ...`) so the shipped `eunomia_contracts` validator stays pure-stdlib.
+# No runtime deps: codegen's PyYAML lives in the pinned `codegen` group (below), and the shipped
+# `eunomia_contracts` validator stays pure-stdlib (CONTRACT §6). `jsonschema` is dev/CI-only.
 dependencies = []
 
 [tool.uv.workspace]
@@ -13,12 +13,24 @@ members = ["contracts", "tooling/bench-harness"]
 [dependency-groups]
 # Mirrors Hermes exactly — these exact version bounds. Gates run on tool DEFAULTS:
 # there is intentionally NO [tool.ruff] and NO [tool.mypy] section anywhere.
+# `jsonschema` (Run 0b, OQ-1): the dev/CI HYBRID conformance validator's structural layer — the
+# real Draft 2020-12 library, NOT shipped to the field (the sidecar/edge validator is pure-stdlib).
+# `types-jsonschema` keeps `mypy .` clean over the conformance test.
 dev = [
     "pytest>=8.0,<9.0",
     "ruff>=0.10,<0.20",
     "mypy>=1.10,<2.0",
     "import-linter>=2.0,<3.0",
+    "jsonschema>=4.0,<5.0",
+    "types-jsonschema>=4.0,<5.0",
 ]
+
+# Hermetic codegen (Run 0b, BUILD_PLAN carry-forward #1): PyYAML is pinned in
+# `contracts/codegen/requirements.txt`, NOT a [dependency-groups] group. Reason (OQ-6): codegen must
+# run `--no-project` (it produces the tree that IS the `eunomia-contracts` package, so it must run
+# before uv can build/sync that package), and `uv run --no-project` ignores [dependency-groups].
+# So `make codegen` uses `--no-project --with-requirements contracts/codegen/requirements.txt` — the
+# pinned, hermetic codegen dep manifest. The shipped validator never gains a third-party dep.
 
 [tool.pytest.ini_options]
 python_files = ["test_*.py"]

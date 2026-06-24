@@ -1,0 +1,12 @@
+{
+  "as_of": "2026-06-24T10:00:00Z",
+  "delta_seq": 5,
+  "emitted_at": "2026-06-24T10:00:00Z",
+  "entity": "episode",
+  "entity_id": "550e8400-e29b-41d4-a716-446655440000",
+  "op": "upsert",
+  "payload": {
+    "void": false
+  },
+  "schema": "eunomia-sync-delta/v1"
+}

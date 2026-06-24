@@ -1,0 +1,228 @@
+# Eunomia on-card sidecar — the primary, loss-resilient episode record.
+#
+# AUTHORITY: docs/CONTRACT.md §2. discardd (Eunomia coordinator firmware) writes one
+# VID_<ts>_<seq>.eunomia.json next to each clip AT CAPTURE — the label rides on the card.
+# Clean successor to the as-built pantheon-x3-sidecar/v2 (reality-checked at
+# ~/Desktop/Pantheon/X3_Capture_Kit/pipeline/pantheon_sidecar_schema.py).
+#
+# FIELD DSL (consumed by contracts/codegen/generate.py):
+#   name · type(int|number|string|bool|object|array) · required(hard|warn) · description
+#   plus optional:  enum:[…]  non_empty:true  nullable:true  conditional:true (v1-extra)
+#                   items:<type> (for array)  fields:[…] (for object, ONE level of nesting)
+#   hard = corruption makes the record unsafe to ingest (validation fails)         [CONTRACT §6]
+#   warn = downstream-consumed but recoverable; surfaced in triage, non-blocking
+#   conditional:true = required only when `schema` declares v1+ (the v1-extra hard set, OQ-4)
+#
+# STRUCTURE (OQ-2, resolved): the §2.2 field groups are encoded as NESTED objects
+# (identity/timing/provenance/outcome/files) + top-level scalars. This realizes CONTRACT §2's
+# stated change "(a) clean namespacing of the field groups" over the as-built (which scattered
+# provenance/outcome fields under identity/top-level). One level of nesting, no recursion.
+#
+# JUDGMENT CALLS (flagged for the faithfulness check; CONTRACT wins on any disagreement):
+#   • provenance/outcome are nested objects (CONTRACT lists them as groups but did not mark
+#     top-level/nested; the as-built kept these flat/under-identity).
+#   • `seq` is numeric per CONTRACT §2.2 "(numeric)"; the as-built stored a zero-padded string.
+#   • NO top-level `timestamp`: CONTRACT drops camera-clock-derived time as poison (§2.2/§2.3);
+#     the as-built had a hard `timestamp`. Authoritative time is the fob NTP wallclock (operational).
+
+schema: eunomia-sidecar/v1
+title: Sidecar
+description: On-card episode record written by discardd at capture (CONTRACT §2).
+targets: [jsonschema, python, cpp]  # firmware WRITES the sidecar -> C++ target emitted (OQ-5)
+
+fields:
+  # ---- top-level scalars (the two-axis versioning + the ordering spine) ----
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-sidecar/v1]
+    description: Schema identifier; tells a parser which fields to expect (additive semver, §5).
+  - name: record_format_version
+    type: int
+    required: warn
+    description: Writer-owned monotonic int; forensic build-scoping by query. Warn so old cards validate (§5).
+  - name: seq
+    type: int
+    required: hard
+    description: Per-card filename seq counter (numeric, §2.2). Distinct from the fob ordinal.
+  - name: global_episode_seq
+    type: int
+    required: hard
+    description: NAND swap-proof monotonic ordinal; the PRIMARY ordering spine (card is not a unit).
+
+  # ---- identity group (nested, HARD object) ----
+  - name: identity
+    type: object
+    required: hard
+    description: Who/what/where/which-take. Resolved-as-of-recording precedence lives at ingest (§3.3).
+    fields:
+      - name: camera_id
+        type: string
+        required: hard
+        description: Camera body identity (provenance; never decides the kit, §3.3).
+      - name: kit_id
+        type: string
+        required: hard
+        non_empty: true
+        description: The kit (from the fob). HARD-non-empty — decides canonical naming + pairing.
+      - name: side
+        type: string
+        required: hard
+        non_empty: true
+        enum: [left, right]
+        description: Camera side (from the camera NAND). HARD-non-empty — decides L/R pairing.
+      - name: operator_id
+        type: string
+        required: hard
+        description: Operator/person handle (roster binding cross-checked at ingest).
+      - name: station_id
+        type: string
+        required: hard
+        description: Station identity.
+      - name: task_id
+        type: string
+        required: hard
+        description: Task identity (the task menu entry).
+      - name: task_name
+        type: string
+        required: hard
+        description: Human task name.
+      - name: session_id
+        type: string
+        required: hard
+        description: Shift/session identity.
+      - name: episode_id
+        type: string
+        required: hard
+        description: UUIDv4 pairing/join key, minted by the fob, identical on both arms (§7). The ONLY join key.
+      - name: rotation_id
+        type: string
+        required: hard
+        description: Rotation identity.
+      - name: prompt
+        type: string
+        required: hard
+        conditional: true
+        description: Task prompt (v1-extra HARD — required when schema declares v1+, §2.2/OQ-4).
+      - name: task_source
+        type: string
+        required: hard
+        conditional: true
+        enum: [nand_staged, sd_assignment, none]
+        description: Where the task came from (v1-extra HARD; the task-precedence winner, §3.5).
+      - name: episode_ordinal
+        type: int
+        required: warn
+        description: The fob label ordinal (distinct from global_episode_seq; the label-join source).
+      - name: bimanual_episode_id
+        type: string
+        required: warn
+        description: Fob-injected shared L/R id; pairs the two wrist cams of ONE take with no order-join.
+      - name: display_id
+        type: string
+        required: warn
+        description: DERIVED human handle <YYYYMMDD>_<operator>_<station>_<NNNNNN>; never a key (§7).
+      - name: calibration_id
+        type: string
+        required: warn
+        nullable: true
+        description: Optional reference to a calibration entity (scope none/fleet/per_camera; §3.1, C-11).
+      - name: record_settings
+        type: string
+        required: warn
+        description: Resolution/fps/stabilization descriptor (3K/100, FlowState off, audio-on).
+      - name: mount
+        type: string
+        required: warn
+        description: Mount provenance.
+      - name: assignment_source
+        type: string
+        required: warn
+        description: Assignment provenance.
+
+  # ---- timing group (nested, WARN object; camera clock is provenance-only / poison) ----
+  - name: timing
+    type: object
+    required: warn
+    description: Per-camera clip-derived start/stop + the fob-measured cross-cam skew. Numbers loose by design.
+    fields:
+      - name: started_unix
+        type: number
+        required: warn
+        description: Clip-derived start (discardd derives from the file).
+      - name: stopped_unix
+        type: number
+        required: warn
+        description: Clip-derived stop.
+      - name: start_skew_ms
+        type: number
+        required: warn
+        description: Fob-measured cross-cam start skew (the at-capture inter-arm-skew prior).
+      - name: camera_clock
+        type: string
+        required: warn
+        nullable: true
+        description: PROVENANCE-ONLY (the X3 has no RTC; its clock is POISON — never used for ordering, §2.2).
+
+  # ---- provenance / capture-stack group (nested, WARN object) ----
+  - name: provenance
+    type: object
+    required: warn
+    description: The forensic capture-stack identity — how a consumer filters by the producing build (§2.2, B-9).
+    fields:
+      - name: camera_firmware
+        type: string
+        required: warn
+        description: Insta360 fw, self-read by discardd.
+      - name: fob_id
+        type: string
+        required: warn
+        description: The coordinator fob that triggered the take.
+      - name: fob_build
+        type: string
+        required: warn
+        description: Fob firmware build.
+      - name: kit_version
+        type: string
+        required: warn
+        description: discardd firmware version.
+      - name: site_id
+        type: string
+        required: warn
+        description: Site identity.
+      - name: modality
+        type: string
+        required: warn
+        enum: [umi, teleop]
+        description: Capture modality; the teleop-generality field (Eunomia today is always umi, §1.1/B-9).
+
+  # ---- outcome group (nested, WARN object) ----
+  - name: outcome
+    type: object
+    required: warn
+    description: Why the take ended + the operator/coordinator outcome flags (distinct from completeness).
+    fields:
+      - name: stop_reason
+        type: string
+        required: warn
+        enum: [operator, timer, card_full, battery, error, overheat]
+        description: WHY the take ended.
+      - name: archive
+        type: int
+        required: warn
+        description: 0/1 — operator marked DESCARTAR (soft discard); ingest routes archive==1 to the archive bucket.
+      - name: recording_suspect
+        type: int
+        required: warn
+        description: 0/1 — NET-NEW; coordinator could not confirm the clip grew (the no-SD trap, §2.2).
+
+  # ---- files group (nested, HARD object) ----
+  - name: files
+    type: object
+    required: hard
+    description: The clip file(s) the sidecar describes (the .insv/.mp4 extension flip is tolerated, §2.1).
+    fields:
+      - name: back
+        type: string
+        required: hard
+        description: The actual clip file the sidecar describes (the hard-required pointer, §2.1).

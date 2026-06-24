@@ -22,15 +22,18 @@ a version, so drift is a visible version gap, never silent.
 
 | Path | What lives here |
 |---|---|
-| `codegen/` | the generator (neutral source → C++/Python/JSON Schema) + the drift gate |
-| `_proof/` | **Run 0a only** — a throwaway `ping` example proving the pipeline. 0b deletes it. |
+| `codegen/` | the generator (neutral source → C++/Python/JSON Schema) + templates + the pinned codegen deps |
 | `_generated/` | committed, drift-gated codegen outputs (`cpp/`, `python/`, `jsonschema/`) — **do not hand-edit** |
-| `conformance/` | golden fixtures + the cross-target conformance test |
-| `sidecar/` | the on-card `eunomia-sidecar` schema (CONTRACT §2) — **filled in 0b** |
-| `operational/` | the event-sourced operational model (CONTRACT §3) — **filled in 0b** |
-| `release/` | the release metadata Hermes pins + ingests (CONTRACT §4) — **filled in 0b** |
-| `interfaces/` | the hardware seams (CoordinatorPort, CaptureDevicePort) — **filled in 0b** |
-| `events/` | the telemetry-event schema + the operational-sync delta — **filled in 0b** |
+| `conformance/` | golden fixtures (`valid/`·`invalid/`·`warn/`·`semantic_invalid/`) + the hybrid conformance test |
+| `sidecar/` | the on-card `eunomia-sidecar` schema (CONTRACT §2) — **encoded in 0b** |
+| `release/` | the release metadata Hermes pins + ingests (CONTRACT §4) — **encoded in 0b** |
+| `events/` | the telemetry-event schema + the operational-sync delta — **encoded in 0b** |
+| `operational/` | the event-sourced operational model (CONTRACT §3) — **deferred to 0c** (plan.md OQ-1) |
+| `interfaces/` | the hardware seams (CoordinatorPort, CaptureDevicePort) — **deferred to 0c** (plan.md OQ-1) |
 
-> Run 0a stands up the stub + the proven codegen harness only. The real schemas are poured in 0b
-> against this known-good harness.
+> **The validator (CONTRACT §6, Run 0b Option C — hybrid).** Two validators share one severity model.
+> The SHIPPED one is `eunomia_contracts.<entity>.validate` / `validate_full` — pure-stdlib (no deps),
+> runs cam-side / in ingest / on the edge; it applies the generated hard/warn tables + the hand-written
+> cross-field rules in `_semantics`. The DEV/CI HYBRID one (`conformance/test_conformance.py`) uses the
+> real `jsonschema` library (Draft 2020-12) for the structural layer + the same overlay for severity.
+> `jsonschema` is dev-only and never ships.
