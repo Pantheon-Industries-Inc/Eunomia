@@ -1,0 +1,5 @@
+{
+  "schema": "eunomia-hardware-unit/v1",
+  "unit_id": "unit_99",
+  "type": "battery"
+}

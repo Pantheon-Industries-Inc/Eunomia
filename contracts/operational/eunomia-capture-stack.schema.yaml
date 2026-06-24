@@ -1,0 +1,68 @@
+# Eunomia operational entity — capture_stack (registered provenance).
+#
+# AUTHORITY: docs/CONTRACT.md §3.1 (capture_stack) + B-9 (capture-stack provenance). A versioned
+# combination {modality, camera model, camera fw, fob board, fob fw, UMI gripper hw, SD model,
+# coordinator/Eunomia sw} resolving from `capture_stack_id`. Every episode records capture_stack_id +
+# the per-episode serials; heavy version details live HERE (reference-by-id), not on every episode.
+#
+# OQ-A: `modality` IS a domain-closed hard enum (umi|teleop). Warn-severity (provenance) — consistent
+# with the sidecar/release modality field.
+# EVENT-SOURCING (B-8/B-9): a firmware update = a new stack version / `unit_firmware_updated`
+# operational-event, so "what stack was in effect when this episode was shot" is answerable as-of.
+# TARGETS: [jsonschema, python] (firmware never reads the operational model, OQ-10).
+
+schema: eunomia-capture-stack/v1
+title: CaptureStack
+description: A registered capture-stack version, referenced by id from each episode — CONTRACT §3.1, B-9.
+targets: [jsonschema, python]
+
+fields:
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-capture-stack/v1]
+    description: Schema identifier; additive semver (§5).
+  - name: capture_stack_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The capture-stack identity (the anchor; referenced from the episode).
+  - name: version
+    type: int
+    required: warn
+    description: Stack version (a firmware/hw change is a new version; resolvable as-of, B-8).
+  - name: modality
+    type: string
+    required: warn
+    enum: [umi, teleop]
+    description: Capture modality (domain-closed hard enum; umi today, teleop slots in with no schema break).
+  - name: camera_model
+    type: string
+    required: warn
+    description: Camera model.
+  - name: camera_fw
+    type: string
+    required: warn
+    description: Camera firmware version.
+  - name: fob_board
+    type: string
+    required: warn
+    description: Fob board type.
+  - name: fob_fw
+    type: string
+    required: warn
+    description: Fob firmware version.
+  - name: gripper_hw
+    type: string
+    required: warn
+    nullable: true
+    description: UMI gripper hardware version.
+  - name: sd_model
+    type: string
+    required: warn
+    nullable: true
+    description: SD card model.
+  - name: coordinator_sw
+    type: string
+    required: warn
+    description: Coordinator/Eunomia software version (discardd).

@@ -1,0 +1,11 @@
+{
+  "schema": "eunomia-footage-reference/v1",
+  "episode_id": "550e8400-e29b-41d4-a716-446655440000",
+  "footage_state": "on_hades",
+  "locations": ["styx:/mnt/robot-pool/umi/kit_07", "hades:/pool/umi/kit_07"],
+  "hash": "sha256:abc123",
+  "spot_check_selected": true,
+  "selection_method": "qc_sample",
+  "rendered_on_hades_at": "2026-06-24T18:30:00Z",
+  "purge_eligible_at": "2026-07-01T18:30:00Z"
+}

@@ -20,7 +20,7 @@
       "type": "string"
     },
     "entity": {
-      "description": "Operational entity type (open string in 0b; becomes an enum of \u00a73 entities in 0c).",
+      "description": "Operational entity type \u2014 OPEN string (additive-safe, \u00a75); WARN-checked vs the \u00a73 entity set (OQ-9).",
       "minLength": 1,
       "type": "string"
     },
@@ -38,7 +38,7 @@
       "type": "string"
     },
     "payload": {
-      "description": "OPAQUE entity fields (validated against the \u00a73 entity schemas in 0c; opaque here).",
+      "description": "OPAQUE entity fields (validated against the \u00a73 entity schemas at the fold; opaque here).",
       "type": [
         "object",
         "null"

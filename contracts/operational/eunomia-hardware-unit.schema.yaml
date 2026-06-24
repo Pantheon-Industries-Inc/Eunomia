@@ -1,0 +1,107 @@
+# Eunomia operational entity — hardware_unit (any physical device with a lifecycle).
+#
+# AUTHORITY: docs/CONTRACT.md §3.1 (hardware_unit) + §3.4 (the crosswalk) + B-9 + R-2 (provisioning
+# data capture). A camera body, fob, SD card, or gripper: an immutable identity (serials), provisioning
+# facts, and lifecycle events.
+#
+# ⭐ SERIALS ARE IMMUTABLE + THE §3.4 CROSSWALK KEY + NEVER DECIDE THE KIT (§3.3). The long IAQEB…
+# .insv serial is the crosswalk that retargets a stale-labeled clip by its immutable serial; it is
+# PROVENANCE, not an identity decision. This is documented prose (multi-entity join logic), NOT a
+# single-record rule.
+#
+# OQ-A (open-string + WARN-check): `type` + `status` are vocabularies "closed by today's list" (a new
+# device type / lifecycle state is plausible) → OPEN STRINGS (additive-safe) + a WARN-level value-set
+# check in _semantics. `side` IS a domain-closed hard enum (left|right — two arms), but warn-severity
+# + nullable here (only cameras have a side).
+#
+# OQ-4: lifecycle history (provisioned→deployed→faulted→retired, assignments) = append-only
+# `operational-event` records, NEVER an embedded object array. `status` is the materialized current
+# state; transition LEGALITY is multi-record (the event log), not a single-record check.
+# SHAPE: `provisioning` is ONE nested object level (like the sidecar `provenance` group) — within DSL.
+
+schema: eunomia-hardware-unit/v1
+title: HardwareUnit
+description: A physical device with a lifecycle (camera/fob/sd/gripper) — current-state view (CONTRACT §3.1).
+targets: [jsonschema, python]
+
+fields:
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-hardware-unit/v1]
+    description: Schema identifier; additive semver (§5).
+  - name: unit_id
+    type: string
+    required: hard
+    non_empty: true
+    description: Stable unit identity (the anchor).
+  - name: type
+    type: string
+    required: hard
+    non_empty: true
+    description: Device type — OPEN string (hard-present), WARN-checked vs {fob, camera, sd, gripper} (OQ-A).
+  - name: body_serial
+    type: string
+    required: warn
+    nullable: true
+    description: Immutable body serial (provenance/crosswalk; §3.4; null until provisioned).
+  - name: insv_serial
+    type: string
+    required: warn
+    nullable: true
+    description: The IAQEB .insv serial — the §3.4 crosswalk key; immutable; NEVER decides the kit (§3.3).
+  - name: mac
+    type: string
+    required: warn
+    nullable: true
+    description: MAC address (provisioning fact, R-2).
+  - name: batch_id
+    type: string
+    required: warn
+    nullable: true
+    description: Provisioning batch (order→batch→unit, §3.1).
+  - name: order_id
+    type: string
+    required: warn
+    nullable: true
+    description: Provisioning order (order→batch→unit, §3.1).
+  - name: hardware_version
+    type: string
+    required: warn
+    nullable: true
+    description: Hardware revision.
+  - name: status
+    type: string
+    required: warn
+    description: Lifecycle state — OPEN string, WARN-checked vs {received, provisioned, deployed, faulted, retired} (OQ-A).
+  - name: kit_id
+    type: string
+    required: warn
+    nullable: true
+    description: Current kit binding (as-of; the binding history lives in events, OQ-4). Serials NEVER decide this (§3.3).
+  - name: side
+    type: string
+    required: warn
+    enum: [left, right]
+    description: Camera side (NAND-burned; domain-closed enum). OMITTED for non-cameras (absent, not null — a nullable enum would reject null structurally).
+  - name: provisioning
+    type: object
+    required: warn
+    description: Provisioning/connection facts captured at provision time (R-2). ONE nesting level.
+    fields:
+      - name: wifi_ssid
+        type: string
+        required: warn
+        description: Camera/AP WiFi SSID (identity-only; never the PSK — fleet_registry secrets-separation).
+      - name: wifi_ap
+        type: string
+        required: warn
+        description: AP details.
+      - name: ip_scheme
+        type: string
+        required: warn
+        description: Assigned IP scheme.
+      - name: firmware_version
+        type: string
+        required: warn
+        description: Firmware version recorded at provisioning.

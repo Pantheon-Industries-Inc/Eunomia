@@ -1,0 +1,72 @@
+# Eunomia operational entity — session (a shift / block of capture).
+#
+# AUTHORITY: docs/CONTRACT.md §3.1 (session). A block of capture for a (person, kit) over a time
+# window. Carries session_id, the fob `fob_session_id` (random per fob boot — the fob-swap
+# disambiguation key; ingest keys on (kit_id, fob_session_id, ordinal)), open/close events, pause
+# tracking.
+#
+# OQ-D: the SESSION IS the kit↔person binding (it carries person_id + kit_id + the signed_in/out
+# window) — no separate binding entity. A roster-level kit→person `operational-event` covers resolution
+# outside a session window. This models kit↔person as shift-scoped (correct for UMI collection).
+# OQ-4: open/close + pauses-as-events live in `operational-event`; pause tracking here is SCALARS
+# (count + total ms), NEVER an array-of-objects. TARGETS: [jsonschema, python].
+
+schema: eunomia-session/v1
+title: Session
+description: A shift/capture block for a (person, kit) over a time window — CONTRACT §3.1 (the kit↔person binding, OQ-D).
+targets: [jsonschema, python]
+
+fields:
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-session/v1]
+    description: Schema identifier; additive semver (§5).
+  - name: session_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The session identity (the anchor).
+  - name: person_id
+    type: string
+    required: warn
+    description: The person on shift (the kit↔person binding, OQ-D; resolved/cross-checked at ingest).
+  - name: kit_id
+    type: string
+    required: warn
+    description: The kit used this shift (the kit↔person binding, OQ-D).
+  - name: site_id
+    type: string
+    required: warn
+    description: Site identity.
+  - name: station_id
+    type: string
+    required: warn
+    description: Station identity.
+  - name: fob_session_id
+    type: string
+    required: warn
+    description: Random per fob boot — the fob-swap disambiguation key (ingest keys on kit_id+fob_session_id+ordinal).
+  - name: signed_in_at
+    type: string
+    required: warn
+    nullable: true
+    description: Session open time (start of the kit↔person window, OQ-6).
+  - name: signed_out_at
+    type: string
+    required: warn
+    nullable: true
+    description: Session close time; null = open (OQ-6).
+  - name: task_id
+    type: string
+    required: warn
+    nullable: true
+    description: "The task run this session (block-level labeling: one task ~2 hrs)."
+  - name: pause_count
+    type: int
+    required: warn
+    description: Number of pauses (scalar; per-pause detail is events, OQ-4).
+  - name: total_pause_ms
+    type: number
+    required: warn
+    description: Total paused time in ms (scalar).

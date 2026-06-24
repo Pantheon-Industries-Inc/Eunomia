@@ -131,11 +131,13 @@ def _structural(obj: object, t: Tables) -> "tuple[list[str], list[str]]":
 
 
 # ---- hand-written cross-field LOGIC rules JSON Schema cannot express (OQ-3) ----
-# Each returns a list of HARD error strings. Keyed by schema id below.
+# Each returns a list of error strings, keyed by schema id below. HARD rules INVALIDATE the record;
+# WARN rules only FLAG (non-blocking) — used for value-sets that are "closed by today's list" rather
+# than by the domain, where a hard enum would be a §5-violating narrowing (OQ-9 / OQ-A).
 
 
-def _release_void_requires_reason(obj: dict) -> "list[str]":
-    """A voided episode MUST say why (CONTRACT §4.1 "void+void_reason")."""
+def _void_requires_reason(obj: dict) -> "list[str]":
+    """A voided episode/release MUST say why (CONTRACT §4.1/§3.2 "void+void_reason")."""
     if obj.get("void") is True:
         reason = obj.get("void_reason")
         if not (isinstance(reason, str) and reason.strip()):
@@ -143,8 +145,21 @@ def _release_void_requires_reason(obj: dict) -> "list[str]":
     return []
 
 
+def _footage_hold_requires_method(obj: dict) -> "list[str]":
+    """A spot-check-held footage_reference MUST record WHY it was selected (OQ-5 / OQ-11)."""
+    if obj.get("spot_check_selected") is True:
+        method = obj.get("selection_method")
+        if not (isinstance(method, str) and method.strip()):
+            return [
+                "hard: spot_check_selected==true requires a non-empty selection_method"
+            ]
+    return []
+
+
 _CROSS_FIELD_HARD: dict = {
-    "eunomia-release/v1": [_release_void_requires_reason],
+    "eunomia-release/v1": [_void_requires_reason],
+    "eunomia-episode/v1": [_void_requires_reason],
+    "eunomia-footage-reference/v1": [_footage_hold_requires_method],
 }
 
 
@@ -157,12 +172,105 @@ def _cross_field_hard(obj: object, schema_id: str) -> "list[str]":
     return out
 
 
+# ---- WARN-level value-set checks for OPEN-string vocabularies (OQ-9 / OQ-A) ----
+# These fields stay open strings in the schema (additive-safe, no §5 narrowing); the check FLAGS a
+# value outside the known-today set as a WARNING (the signal without the hard rejection). The sets are
+# "closed by today's list" and expected to grow additively. Keyed by schema id.
+
+_OPERATIONAL_ENTITIES = frozenset(
+    {
+        "person",
+        "hardware_unit",
+        "kit",
+        "calibration",
+        "task",
+        "session",
+        "capture_stack",
+        "footage_reference",
+        "episode",
+    }
+)
+_HARDWARE_UNIT_TYPES = frozenset({"fob", "camera", "sd", "gripper"})
+_HARDWARE_UNIT_STATUSES = frozenset(
+    {"received", "provisioned", "deployed", "faulted", "retired"}
+)
+_PERSON_ROLES = frozenset({"operator", "lead", "supervisor"})
+_PERSON_STATUSES = frozenset({"active", "offboarded"})
+_OPERATIONAL_EVENT_TYPES = frozenset(
+    {
+        "unit_provisioned",
+        "unit_deployed",
+        "unit_assigned",
+        "unit_faulted",
+        "unit_retired",
+        "unit_firmware_updated",
+        "person_onboarded",
+        "person_qualified",
+        "person_offboarded",
+        "session_opened",
+        "session_closed",
+        "calibration_recorded",
+        "task_version_bumped",
+        "kit_binding_changed",
+        "roster_binding_changed",
+    }
+)
+
+
+def _warn_value_in_set(obj: dict, path: str, allowed: "frozenset[str]") -> "list[str]":
+    """Warn (not hard) if a present, non-empty string value is outside the known-today set."""
+    found, value = _descend(obj, path)
+    if found and isinstance(value, str) and value and value not in allowed:
+        return [f"warn: {path} value {value!r} not in the known set {sorted(allowed)}"]
+    return []
+
+
+def _sync_delta_entity_known(obj: dict) -> "list[str]":
+    return _warn_value_in_set(obj, "entity", _OPERATIONAL_ENTITIES)
+
+
+def _hardware_unit_vocab(obj: dict) -> "list[str]":
+    return _warn_value_in_set(obj, "type", _HARDWARE_UNIT_TYPES) + _warn_value_in_set(
+        obj, "status", _HARDWARE_UNIT_STATUSES
+    )
+
+
+def _person_vocab(obj: dict) -> "list[str]":
+    return _warn_value_in_set(obj, "role", _PERSON_ROLES) + _warn_value_in_set(
+        obj, "status", _PERSON_STATUSES
+    )
+
+
+def _operational_event_vocab(obj: dict) -> "list[str]":
+    return _warn_value_in_set(
+        obj, "event_type", _OPERATIONAL_EVENT_TYPES
+    ) + _warn_value_in_set(obj, "entity", _OPERATIONAL_ENTITIES)
+
+
+_CROSS_FIELD_WARN: dict = {
+    "eunomia-sync-delta/v1": [_sync_delta_entity_known],
+    "eunomia-hardware-unit/v1": [_hardware_unit_vocab],
+    "eunomia-person/v1": [_person_vocab],
+    "eunomia-operational-event/v1": [_operational_event_vocab],
+}
+
+
+def _cross_field_warn(obj: object, schema_id: str) -> "list[str]":
+    if not isinstance(obj, dict):
+        return []
+    out: list[str] = []
+    for rule in _CROSS_FIELD_WARN.get(schema_id, []):
+        out.extend(rule(obj))
+    return out
+
+
 def validate_full(
     obj: object, t: Tables, schema_id: str
 ) -> "tuple[list[str], list[str]]":
     """Return (hard_errors, warnings). hard_errors invalidate the record (CONTRACT §6)."""
     errors, warnings = _structural(obj, t)
     errors.extend(_cross_field_hard(obj, schema_id))
+    warnings.extend(_cross_field_warn(obj, schema_id))
     return (errors, warnings)
 
 

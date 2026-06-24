@@ -1,0 +1,18 @@
+{
+  "schema": "eunomia-calibration/v1",
+  "calibration_id": "cal_per_cam_1",
+  "scope": "per_camera",
+  "camera_serial": "IAQEBABCD1234",
+  "method": "checkerboard",
+  "captured_at": "2026-02-01T00:00:00Z",
+  "effective_from": "2026-02-01T00:00:00Z",
+  "effective_to": null,
+  "distortion_coeffs": [-0.31, 0.12, 0.0, 0.0, -0.02],
+  "intrinsics": {
+    "fx": 1234.5,
+    "fy": 1234.5,
+    "cx": 1504.0,
+    "cy": 752.0,
+    "stitch": "fisheye_v2"
+  }
+}

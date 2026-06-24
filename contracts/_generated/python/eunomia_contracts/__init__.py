@@ -2,22 +2,62 @@
 
 from __future__ import annotations
 
+from eunomia_contracts import calibration
+from eunomia_contracts import capture_stack
+from eunomia_contracts import episode
+from eunomia_contracts import footage_reference
+from eunomia_contracts import hardware_unit
+from eunomia_contracts import kit
+from eunomia_contracts import operational_event
+from eunomia_contracts import person
 from eunomia_contracts import release
+from eunomia_contracts import session
 from eunomia_contracts import sidecar
 from eunomia_contracts import sync_delta
+from eunomia_contracts import task
 from eunomia_contracts import telemetry_event
+from eunomia_contracts.calibration import Calibration
+from eunomia_contracts.capture_stack import CaptureStack
+from eunomia_contracts.episode import Episode
+from eunomia_contracts.footage_reference import FootageReference
+from eunomia_contracts.hardware_unit import HardwareUnit
+from eunomia_contracts.kit import Kit
+from eunomia_contracts.operational_event import OperationalEvent
+from eunomia_contracts.person import Person
 from eunomia_contracts.release import Release
+from eunomia_contracts.session import Session
 from eunomia_contracts.sidecar import Sidecar
 from eunomia_contracts.sync_delta import SyncDelta
+from eunomia_contracts.task import Task
 from eunomia_contracts.telemetry_event import TelemetryEvent
 
 __all__ = [
+    "Calibration",
+    "CaptureStack",
+    "Episode",
+    "FootageReference",
+    "HardwareUnit",
+    "Kit",
+    "OperationalEvent",
+    "Person",
     "Release",
+    "Session",
     "Sidecar",
     "SyncDelta",
+    "Task",
     "TelemetryEvent",
+    "calibration",
+    "capture_stack",
+    "episode",
+    "footage_reference",
+    "hardware_unit",
+    "kit",
+    "operational_event",
+    "person",
     "release",
+    "session",
     "sidecar",
     "sync_delta",
+    "task",
     "telemetry_event",
 ]

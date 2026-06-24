@@ -5,9 +5,14 @@
 #
 # SCOPE NOTE (deferred, §8 OPEN): the edge-sync CADENCE + CONFLICT POLICY + the Hades-backup shape
 # are deliberately deferred to when `edge/sync/` is built. 0b encodes only the DELTA ENVELOPE shape
-# so the contract surface exists; `payload` is an OPAQUE object here because the operational entity
-# schemas (person/hardware_unit/episode/...) land in 0c. `entity` is an open string for the same
-# reason (it becomes an enum of operational entity types in 0c). No C++ target (edge-side Python).
+# so the contract surface exists; `payload` is an OPAQUE object (validated against the §3 entity
+# schemas at the fold; opaque here). The operational entity schemas landed in 0d
+# (contracts/operational/).
+#
+# OQ-9 (0d): `entity` STAYS AN OPEN STRING (structurally additive-safe, §5) — turning it into a hard
+# enum would be a NARROWING (an old delta with an out-of-set entity would suddenly hard-fail). Instead
+# a WARN-level _semantics check flags an entity value outside the known operational set (the signal
+# without the hard rejection). No C++ target (edge-side Python).
 
 schema: eunomia-sync-delta/v1
 title: SyncDelta
@@ -32,7 +37,7 @@ fields:
     type: string
     required: hard
     non_empty: true
-    description: Operational entity type (open string in 0b; becomes an enum of §3 entities in 0c).
+    description: Operational entity type — OPEN string (additive-safe, §5); WARN-checked vs the §3 entity set (OQ-9).
   - name: op
     type: string
     required: hard
@@ -52,4 +57,4 @@ fields:
     type: object
     required: warn
     nullable: true
-    description: OPAQUE entity fields (validated against the §3 entity schemas in 0c; opaque here).
+    description: OPAQUE entity fields (validated against the §3 entity schemas at the fold; opaque here).

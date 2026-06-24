@@ -1,0 +1,55 @@
+# Eunomia operational entity — kit (the logical unit an operator carries).
+#
+# AUTHORITY: docs/CONTRACT.md §3.1 (kit). A kit is a TIME-BOUND BINDING of {a LEFT camera unit, a
+# RIGHT camera unit, a fob unit} with a kit_id. Camera→side is a property of the unit's binding
+# (NAND-burned), not of the kit. Spares are side-typed units pre-bound + allow-listed so a swap is
+# power-on.
+#
+# OQ-4 / OQ-6: this record holds only the CURRENT binding (scalars + a validity range). The binding
+# HISTORY over time = separate append-only binding/`operational-event` records referenced by id, NEVER
+# an embedded object array. `effective_from`/`effective_to` (null = open/current) are the OQ-6 as-of
+# range; an episode resolves its kit binding against the binding true at recorded_at (documented; the
+# resolver is a later run).
+# TARGETS: [jsonschema, python] (OQ-10).
+
+schema: eunomia-kit/v1
+title: Kit
+description: A time-bound binding of {left-cam, right-cam, fob} units — current-state view (CONTRACT §3.1).
+targets: [jsonschema, python]
+
+fields:
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-kit/v1]
+    description: Schema identifier; additive semver (§5).
+  - name: kit_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The kit identity (the anchor).
+  - name: left_cam_unit_id
+    type: string
+    required: warn
+    nullable: true
+    description: The bound LEFT camera unit (references hardware_unit.unit_id; null between bindings).
+  - name: right_cam_unit_id
+    type: string
+    required: warn
+    nullable: true
+    description: The bound RIGHT camera unit (references hardware_unit.unit_id).
+  - name: fob_unit_id
+    type: string
+    required: warn
+    nullable: true
+    description: The bound fob unit (references hardware_unit.unit_id).
+  - name: effective_from
+    type: string
+    required: warn
+    nullable: true
+    description: Start of this binding's validity (OQ-6 as-of range).
+  - name: effective_to
+    type: string
+    required: warn
+    nullable: true
+    description: End of validity; null = the open/current binding (OQ-6).

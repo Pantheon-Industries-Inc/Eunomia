@@ -1,0 +1,20 @@
+{
+  "schema": "eunomia-hardware-unit/v1",
+  "unit_id": "unit_42",
+  "type": "camera",
+  "body_serial": "BODY123",
+  "insv_serial": "IAQEBABCD1234",
+  "mac": "AA:BB:CC:DD:EE:FF",
+  "batch_id": "batch_3",
+  "order_id": "order_1",
+  "hardware_version": "x3-rev2",
+  "status": "deployed",
+  "kit_id": "kit_07",
+  "side": "left",
+  "provisioning": {
+    "wifi_ssid": "kit07-ap",
+    "wifi_ap": "X3_AP_kit07",
+    "ip_scheme": "192.168.4.0/24",
+    "firmware_version": "1.1.6"
+  }
+}

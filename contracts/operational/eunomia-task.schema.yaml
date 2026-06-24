@@ -1,0 +1,74 @@
+# Eunomia operational entity — task (the versioned task menu).
+#
+# AUTHORITY: docs/CONTRACT.md §3.1 (task) + §3.5 (task precedence). task_id, task_name, prompt,
+# rotation_id, station_id. Carries ONLY task fields, never identity (the clean-separation principle).
+#
+# VERSIONED (OQ-6): a prompt can change; episodes resolve the prompt AS-OF recorded_at. `version` is
+# the version axis; effective_from/effective_to is the version's validity range. The resolver is a
+# later run (documented, not implemented).
+#
+# TASK PRECEDENCE (§3.5, documented — NOT a single-record rule): NAND pantheon_current_task.env →
+# overridden by SD current_assignment.env → else none → the order-join supplies station/prompt at
+# ingest. `task_source` (nand_staged|sd_assignment|none) already lives on the sidecar; it records which
+# won. TARGETS: [jsonschema, python].
+
+schema: eunomia-task/v1
+title: Task
+description: A versioned task-menu entry (prompt resolved as-of recording) — CONTRACT §3.1/§3.5.
+targets: [jsonschema, python]
+
+fields:
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-task/v1]
+    description: Schema identifier; additive semver (§5).
+  - name: task_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The task identity (the anchor).
+  - name: version
+    type: int
+    required: warn
+    description: Task version axis (a prompt change is a new version; resolved as-of recorded_at, OQ-6).
+  - name: task_name
+    type: string
+    required: warn
+    description: Human task name.
+  - name: prompt
+    type: string
+    required: warn
+    description: Task prompt (versioned; resolved as-of recording).
+  - name: rotation_id
+    type: string
+    required: warn
+    description: Rotation identity.
+  - name: station_id
+    type: string
+    required: warn
+    description: Station identity.
+  - name: category
+    type: string
+    required: warn
+    nullable: true
+    description: Task category (open string; structured attribute).
+  - name: bimanual
+    type: bool
+    required: warn
+    description: Whether the task is bimanual.
+  - name: expected_duration_s
+    type: number
+    required: warn
+    nullable: true
+    description: Expected duration in seconds.
+  - name: effective_from
+    type: string
+    required: warn
+    nullable: true
+    description: Start of this version's validity (OQ-6).
+  - name: effective_to
+    type: string
+    required: warn
+    nullable: true
+    description: End of validity; null = current (OQ-6).

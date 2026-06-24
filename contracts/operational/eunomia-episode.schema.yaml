@@ -1,0 +1,149 @@
+# Eunomia operational entity — episode (THE JOIN POINT).
+#
+# AUTHORITY: docs/CONTRACT.md §3.2 (the episode) + §3.3 (identity precedence) + C-12 (pairing) + C-9
+# (episode_id = UUIDv4 + derived display_id). The central record; NOT owned by a card (the card is NOT
+# a unit — episodes belong to a continuous per-(kit,side) sequence by global_episode_seq).
+#
+# ⭐ SHAPE-DIVERGENCE-SAFE (carry-forward from 0b): the operational episode joins the on-card sidecar
+# BY `episode_id` and references sidecar fields BY LOGICAL NAME (episode_id, global_episode_seq, side,
+# kit_id, …) — it does NOT assume the sidecar's nested-vs-flat physical shape. The divergence is
+# resolved in the firmware run or by ingest tolerance, NOT here.
+# ⭐ REFERENCES the footage_reference BY shared episode_id — does NOT embed it (footage state mutates
+# post-record; embedding would force episode mutation). Keeps episode all-scalars.
+#
+# IDENTITY PRECEDENCE (§3.3, documented — multi-entity, NOT a single-record rule): kit_id←fob,
+# side←camera NAND, person←roster-by-kit as-of recorded_at, station+prompt←fob trigger; serials are
+# provenance + NEVER decide the kit. References here are STORED; as-of resolution is what ingest does
+# (a later run).
+#
+# OQ-A: `side` is a domain-closed hard enum (HARD-non-empty — decides L/R pairing). `pairing_method`
+# is a hard enum (episode_id|ordinal_join|needs_review) — but it is the hard enum MOST likely to need a
+# future additive value (a new pairing strategy); EYES OPEN (add additively per §5, never narrow).
+# OQ-11 CROSS-FIELD RULE (hand-written hard, _semantics): void ⇒ void_reason (mirrors the release rule).
+# NOTE: `ingested_at` is WARN/nullable here (the operational episode exists at record time; ingest
+# fills it later) — distinct from `release`, where it is HARD. `time_confidence` is a release-derived
+# field (§4.1), deliberately NOT on the operational episode (§3.2 lists recorded_at/ingested_at only).
+# TARGETS: [jsonschema, python] (OQ-10).
+
+schema: eunomia-episode/v1
+title: Episode
+description: The central join-point episode record (sidecar + operational, resolved as-of recorded_at) — CONTRACT §3.2.
+targets: [jsonschema, python]
+
+fields:
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-episode/v1]
+    description: Schema identifier; additive semver (§5).
+
+  # ---- identity / pairing / ordering ----
+  - name: episode_id
+    type: string
+    required: hard
+    non_empty: true
+    description: UUIDv4 pairing/join key, minted by the fob, identical on both arms (§7). The ONLY join key.
+  - name: display_id
+    type: string
+    required: warn
+    description: DERIVED human handle <YYYYMMDD>_<operator>_<station>_<NNNNNN>; never a key (§7).
+  - name: bimanual_episode_id
+    type: string
+    required: warn
+    description: Fob-injected shared L/R id; pairs the two wrist cams of ONE take (distinct from episode_id).
+  - name: episode_ordinal
+    type: int
+    required: warn
+    description: The fob label ordinal (the label-join source).
+  - name: global_episode_seq
+    type: int
+    required: hard
+    description: NAND swap-proof monotonic ordinal — the PRIMARY ordering spine (card is not a unit).
+  - name: kit_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The kit (from the fob, §3.3). HARD-non-empty — decides canonical naming + pairing.
+  - name: side
+    type: string
+    required: hard
+    non_empty: true
+    enum: [left, right]
+    description: Camera side (from camera NAND, §3.3; domain-closed enum). HARD-non-empty — decides L/R pairing.
+
+  # ---- references (resolved as-of recorded_at; STORED here, resolved at ingest) ----
+  - name: person_id
+    type: string
+    required: warn
+    description: Operator/person (roster binding keyed by kit, as-of recorded_at, §3.3).
+  - name: task_id
+    type: string
+    required: hard
+    description: Task identity (the task menu entry; prompt resolved as-of via the task entity).
+  - name: station_id
+    type: string
+    required: hard
+    description: Station (from the fob trigger record, §3.3).
+  - name: session_id
+    type: string
+    required: hard
+    description: Shift/session identity.
+  - name: calibration_id
+    type: string
+    required: warn
+    nullable: true
+    description: Optional calibration reference (scope none/fleet/per_camera; C-11).
+  - name: capture_stack_id
+    type: string
+    required: warn
+    nullable: true
+    description: Capture-stack reference (forensic provenance, B-9).
+
+  # ---- lifecycle timestamps ----
+  - name: recorded_at
+    type: string
+    required: hard
+    description: Fob NTP wallclock (authoritative); the as-of anchor for reference resolution (§3.2, C-10).
+  - name: ingested_at
+    type: string
+    required: warn
+    nullable: true
+    description: When ingest froze this episode; null pre-ingest (WARN here, distinct from release where it is HARD).
+
+  # ---- state (promotion gates on the void FLAG, never a directory) ----
+  - name: paired
+    type: bool
+    required: warn
+    description: Left+right paired (only paired non-void episodes are training/QA-able, §4.2).
+  - name: void
+    type: bool
+    required: warn
+    description: Voided by flag. void==true REQUIRES void_reason (cross-field rule, OQ-11/§3.2).
+  - name: void_reason
+    type: string
+    required: warn
+    nullable: true
+    description: Why voided (required when void==true; the hand-written overlay rule).
+  - name: needs_review
+    type: bool
+    required: warn
+    description: Flagged for review (identity/pairing disagreement; never silently overwrite, §3.3).
+  - name: archive
+    type: int
+    required: warn
+    description: 0/1 — soft discard (DESCARTAR; archive bucket, not training set).
+  - name: recording_suspect
+    type: int
+    required: warn
+    description: 0/1 — the did-it-actually-record flag (the no-SD trap).
+
+  # ---- pairing (C-12, OQ-12) ----
+  - name: pairing_method
+    type: string
+    required: warn
+    enum: [episode_id, ordinal_join, needs_review]
+    description: How L/R were paired (C-12). Hard enum, but the one MOST likely to need a future additive value — eyes open (§5).
+  - name: pairing_anomaly
+    type: bool
+    required: warn
+    description: episode_id pairing disagreed with the ordinal cross-check (C-12).
