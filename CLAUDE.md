@@ -33,9 +33,10 @@ conformance gate (anything emitting/consuming the data validates against the gen
 
 Run `make gates`. Blocking: the five Python gates (`uv run pytest` → `ruff check .` →
 `ruff format --check .` → `mypy .` → `lint-imports`, in that order, on tool defaults), the C++
-`clang-format --dry-run -Werror` + the off-target `pio test -e native`, the cross-language conformance
-gate, and the codegen-drift gate (`make codegen && git diff --exit-code contracts/_generated`).
-Non-blocking in Run 0a: the esp32 target build and `clang-tidy`.
+`clang-format --dry-run -Werror` + the off-target `pio test -e native` + the on-target `pio run -e
+esp32` build (BLOCKING since Run F1 landed `coordinator/core/`), the cross-language conformance gate,
+and the codegen-drift gate (`make codegen && git diff --exit-code contracts/_generated`).
+Non-blocking: `clang-tidy` (flips on with `transport/`/`ui/` in Run F2).
 
 The repo uses **uv** (Python 3.12, a workspace with per-package members) and **PlatformIO** (the ESP32
 coordinator, with a `native` off-target test env). The contract is versioned: a contract change is its
