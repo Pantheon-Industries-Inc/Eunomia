@@ -1394,3 +1394,409 @@ the companion docs FOB_AP_HARDENING.md, FW_2.2.0_CAPTURE_FIXES.md, RTC_TIMEKEEPI
 X3_LIVE_TRIGGER_REPLICATION.md/EXPERIMENTATION.md) into `firmware/coordinator/transport/vendor/
 esp32-fob-wifi/` with a provenance note (repo, path, commit a38f5a9, fw 3.8.3-fast-guard, md5). Then
 read main.cpp IN FULL under the ground-truth rule.
+
+## Run F2 plan APPROVED 2026-06-24 — decisions locked (transport on Victor's WiFi-OSC fob)
+
+The F2 plan-only pass came back strong: the agent vendored Victor's source, read main.cpp in full, and
+its load-bearing findings VERIFY against the code (I checked uplinkUp line 969 + apChannel myself —
+both confirmed). Decisions:
+
+- **SCOPE = SPLIT (LEAD-OQ). F2 = `transport/`** (+ the headless app-glue + the core-0/core-1
+  scaffolding + `env:cyd` building HEADLESS); **F3 = `ui/`.** Decisive reason (concrete, not
+  theoretical): Victor's own `esp32dev` headless build runs the entire trigger/transport path with
+  BOOT-button + serial as the only inputs — so transport stands alone and is validatable end-to-end
+  (mock OSC/telnet + headless build + rig) before a pixel is drawn. The two-hard-rules correctness
+  lands gate-green in its own PR; F3 only adds render/touch.
+- **OQ-1 (the headline design call) = (A).** The X3 adapter's `start()` pushes `current_assignment.env`
+  then fires OSC; `write_sidecar` pushes `current_stop.env`; the adapter gets the projected bytes from
+  a provider callback the app-glue wires, calling `core::project_assignment_env(assignment,
+  coordinator.take())`. Correct because `trigger()` populates `take_` BEFORE the `start()` loop and
+  `take()`/`project_*`/`Assignment` are already public → **ZERO core change**, preserves Victor's proven
+  env-then-OSC ordering. Guardrail: if `take_` isn't populated early enough / the accessor isn't public,
+  STOP and flag — don't reach into core/ silently.
+- **⭐ FINDING #5 / OQ-3 — NO FIELD WALLCLOCK (the biggest hardware finding, VERIFIED).** `uplinkUp()`
+  has an unconditional `return false` at line 969 ("NEVER borrow the radio / tear down the SoftAP — the
+  teardown drops EVERY camera"); everything below is dead code; `configTime`/NTP runs ONLY inside
+  `wifiJoin(forUplink=true)` which is only reachable via `uplinkUp` → **NTP never runs, the `Clock` seam
+  has no field source, `isoNow()` returns "" unless a serial `time=` is sent.** DECISION: **DS3231 RTC
+  is the durable fix** (RTC_TIMEKEEPING.md; ~$1/fob; survives the 4–5×/day battery swaps; the only
+  option not dependent on site WiFi or a daemon) — but the RTC is Victor's hardware, so for F2
+  (software) the stopgap is serial `time=` at provision PLUS the loud-not-silent defenses
+  (`recording_suspect`/`no_wallclock`/`needs_review` when `g_timeSet` is false; the ordinal-log `ms` for
+  backfill). Untimed footage must be VISIBLY flagged, never silently recorded on a bad clock. → flagged
+  to Victor as a hardware-coordination item (DS3231 or boot-time NTP-before-AP).
+- **OQ-4 (TelemetrySink) = keep optional/best-effort/OFF** (the F1 seam; `flush_telemetry` is a no-op
+  until a non-AP-destroying uplink exists; the durable ordinal-log backup is the fail-safe).
+- **OQ-2 (PresenceSource handle mapping) = (B) MAC→side allowlist now** (depot-provisioned, entry
+  0=left/1=right, RPA-stable), **migrating to (C)** the SD-daemon authoritative MAC→side binding when
+  it lands. DHCP-lease order (A) too fragile. COUPLED to OQ-9: the allowlist needs the `lockcams
+  /osc/info` fix (vendored `lockToConnectedCams` reads a never-populated serial → empty allowlist).
+- **OQ-9 (the 2026-06-24 source gap) = (A) if reachable, else (B) with each delta flagged in the diff.**
+  The vendored `a38f5a9` (2026-06-23) is BEHIND Victor's 2026-06-24 binaries — missing channel-11
+  avoidance (vendored `apChannel` spreads `{1,6,11}`, confirmed), `lockcams /osc/info` (load-bearing for
+  OQ-2), and the battery-swap/ghost-REVISA guard. Request the updated source; else adapt + re-derive the
+  three deltas, each flagged. → flagged to Victor for a source refresh.
+- **OQ-7-flow (operator sign-in) = (b)-lite** — keep REGISTRO's kit confirmation AND add operator
+  selection at sign-in so `operator_id` is set per SHIFT, not baked per kit (the operator⊥kit decision
+  realized at the UI: one operator roams kits, the session captures the pairing). Lands in F3; F2's
+  `Assignment` must carry `operator_id` distinctly from the start (it already does — `project_assignment_env`
+  emits `OPERATOR_ID`).
+- **OQ-10 (env-key conformance with discardd) = REQUIRED in F2.** Diff `core::project_*`'s key set
+  against what discardd's `load_envs` actually READS (the readable discardd source is in the bundle).
+  Extra keys (TASK_ID/ROTATION_ID) harmless; a key discardd reads that core renamed/dropped
+  (OPERATOR_NAME dropped, SESSION_ID shifted) silently loses a field — a real conformance check.
+- **OQ-11 (clang-tidy) = flip to blocking, SCOPED to hand-written transport/+ui/** (exclude
+  `transport/vendor/` + framework headers). And `build_src_filter` MUST exclude `transport/vendor/` —
+  the vendored main.cpp is reference-only, never compiled.
+- **OQ-5/OQ-8 (SD-daemon RX) = (A)** a bounded inbound TCP listener on the fob AP IP that does NOT talk
+  OSC, feeding an operational `hardware_unit.provisioning` record — NO contract change, no new port op.
+  The wire format/port is Victor's daemon's (in-flight) → SPEC the receive path but gate the wiring on
+  confirming the format with Victor.
+
+**Ground-truth findings the agent surfaced (his code wins) — the rule earned its keep FIVE times in
+one file:** (1) the folder README is the BLE fob's, stale [known]; (2) main.cpp's top comment inverts
+the AP topology (fob hosts AP, not camera) [known]; (3) NEW — the top comment claims the fob writes the
+sidecar JSON (it pushes env files; discardd writes v2 — re-confirms option C); (4) NEW — vestigial
+NimBLE/CE81/BE80 references throughout (no BLE stack; record state is the fob-authoritative `g_anyRec`
+toggle; `setCamSupervision` referenced but doesn't exist) — dropped in adaptation; (5) NEW + verified —
+the uplink-borrow is code-disabled (OQ-3 above). Vendored md5 `df64685…` (main.cpp) / `1e1b5d8…`
+(platformio.ini), commit `a38f5a9`, recorded in `transport/vendor/.../PROVENANCE.md`.
+
+**Victor-coordination items surfaced by F2 (for Mo's next sync):** (1) the fob needs a real field time
+source — DS3231 RTC (preferred) or boot-time NTP-before-AP (OQ-3); (2) a source refresh to the
+2026-06-24 fob with ch-11 avoidance + `lockcams /osc/info` + the battery-swap guard (OQ-9); (3) confirm
+the SD-daemon provisioning push wire format/port (OQ-8).
+
+## Victor's setup-app + 2026-06-24 fixes — read 2026-06-24 (integrate what's useful)
+
+Victor shipped **`setup-app/`** in `x3-capture-kit` (commits `79e61d8`/`6365643`/`f96b97a`, handoff
+`HANDOFF_2026-06-24_SETUP_APP_AND_FIXES.md`) — a one-screen Mac web app (FastAPI + browser wizard) that
+builds a UMI kit end-to-end with buttons, no terminal. Proven end-to-end on fresh hardware (kit_58).
+Read the handoff, README, and the key source (`kitsetup/cameras.py`, `kitsetup/netwifi.py`) + the
+package layout.
+
+**⭐ THE 2026-06-24 FIXES — these CLOSE several open F2/firmware OQs (they are now KNOWN, in `main` of
+x3-capture-kit, NOT pending):**
+- **OQ-9 RESOLVED (the source gap):** the three deltas the vendored `a38f5a9` was missing are now
+  landed: **ch-11 dead** → `apChannel` `{1,6,11}`→**`{1,6,6}`** (ESP32 SoftAP reports up on ch11 but no
+  client can associate; `kit_num%3==2` hit it on kit_56); **`lockcams` /osc/info** → a one-shot
+  `/osc/info` per cam at lock time learns the full `IAQEB…` serial (fixes the empty-allowlist bug =
+  OQ-2's dependency); **start-sync** → `LOCK_REASSERT_S=3600` AND it now reaches discardd's env at
+  launch via `bootup.sh` `set -a; . config.env` (the in-loop source alone didn't reach the reassert
+  guard). **F2 should adapt from the UPDATED source, not `a38f5a9` — pull the newer fob source** (the
+  re-derivation fallback is no longer needed; OQ-9 → option A is now available).
+- **REVISA-after-battery-swap fix:** the card-check required EVERY station (`nOk==nTot`); a ghost
+  station (a battery-pull lingers ~18h in the AP table) failed it → now `nOk>=kMinCams`. Relevant to
+  our presence/`detect_drop` logic — a lingering ghost STA must not block GRABAR.
+- **rev4 auto-join bootstrap (confirms the F2 finding):** on rev4, `bootup.sh` seeds/re-points NAND
+  `/pref/pantheon_fob.env` from the SD hint and lets the `S99zfobjoin` supervisor join (NOT
+  `x3_fob_link`, which fights it = the STA↔AP flap). Exactly the F2 register finding, now also handling
+  reused cams (re-points stale NAND).
+- **Flashing:** CYD USB-serial drops mid-write at 460800 → `upload_speed=115200` + app auto-retry; a
+  half-written board is NOT bricked (bootloader intact). (Provisioning-tooling detail.)
+
+**⭐ THE CONSTRAINT MO FLAGGED — tethered internet is NON-CIRCUMVENTABLE, and it's CODE-ENFORCED.**
+`kitsetup/netwifi.py::uplink_safe()` checks `route -n get default` and **refuses to switch `en0` to a
+no-internet cam/fob AP unless a non-WiFi uplink (USB tether / ethernet) carries the internet** —
+otherwise joining the AP would strand the Mac. This is the "channel must be open to be used on the fob"
+rule: provisioning a fob/cam requires the laptop to keep its internet on a *different* interface
+(plugged-in phone hotspot over USB, or ethernet) while `en0` joins the cam/fob AP. **Eunomia's
+provisioning console MUST carry this exact safety gate** (don't switch the provisioning machine's WiFi
+to the AP unless the default route is already off-WiFi). Plus the one-time-internet need: first run
+installs pip deps + the PlatformIO esp32 toolchain (hundreds of MB, once).
+
+**⭐ THE PROVISIONING LOGIC — directly relevant to Eunomia's provisioning console + the SD-daemon
+RECEIVE OQ.** `kitsetup/cameras.py` is the proven flow (the fragile WiFi step made one-click): read the
+camera's **real body serial over telnet** (the AP-SSID file `X3 <serial>.OSC`, or a LOCAL
+`/osc/info` — one deliberate cherokee-safe OSC call — never trust a human label), look up its **side in
+the fleet registry**, and write `/pref/pantheon_camera.env` (NAND identity: CAMERA_ID/KIT_ID/SIDE/
+MOUNT) + the fob target over telnet; **discardd applies identity live, no reboot**. `scan_fob()` reads
+all cams on .2–.6 so the UI fills the register instead of an operator reading tiny labels.
+**Relationship to our SD-daemon RECEIVE path (F2 OQ-5/OQ-8):** this is the *Mac-side, AP-join*
+provisioning that exists TODAY. Victor's in-flight *SD-daemon* (pushes connection info to the fob over
+telnet) is the EVOLUTION that removes the manual cam-AP-join step. So the provisioning has two
+generations: (gen-1, shipped) the setup-app reads serial + writes identity over telnet from the Mac on
+the cam AP; (gen-2, in-flight) the SD daemon self-reports from inside the camera to the fob. Our
+console should target gen-2's model but the gen-1 logic is the reference for the telnet identity write.
+
+**The setup-app structure (FastAPI):** `server.py` (the app + endpoints), `kitsetup/` package
+(`sd.py` = erase→exFAT→discardd→firmware→md5-verify; `fob.py` = USB detect + PlatformIO flash + set
+kit#; `cameras.py` = the telnet provisioning above; `fleet.py` = the YAML registry via
+`fleet_registry.py`; `netwifi.py` = the uplink-safety gate; `jobs.py` = job/log orchestration;
+`cfg.py`/`util.py`), `static/` (the wizard UI), `config.json` (repo-relative paths), `launch.command`,
+`firmware/` (rev4 cam bin + fob build via Git LFS, ~94 MB).
+
+**DECISION — what's useful to integrate into Eunomia (NOT a wholesale adopt):**
+1. **The tether-safety gate (`uplink_safe`) → REQUIRED in Eunomia's provisioning console.** Port the
+   `route -n get default != en0` rule verbatim-in-spirit. This is the non-circumventable constraint.
+2. **The telnet provisioning logic (`cameras.py`) → the reference for our provisioning console** (read
+   real serial, registry side-lookup, write NAND identity, discardd-applies-live). It maps onto the 0d
+   `hardware_unit.provisioning` group + the operator/kit/side identity model. Eunomia's console is a
+   *consumer of the contract*; setup-app's logic is the proven mechanism it wraps.
+3. **The 2026-06-24 firmware fixes → F2 adapts from the UPDATED fob source** (ch6, lockcams /osc/info,
+   the reassert-env fix, the REVISA `nOk>=kMinCams` change). Re-pull the fob source for F2; the OQ-9
+   re-derivation fallback is moot.
+4. **NOT adopting wholesale:** the setup-app is x3-capture-kit's Mac bring-up tool (FastAPI + a Mac
+   `.command` + PlatformIO + Git-LFS firmware). Eunomia's provisioning belongs in the
+   `consoles/`/`substrate` layer of the clean monorepo, built against the contract — it BORROWS the
+   proven logic (the telnet writes, the serial read, the tether gate) rather than vendoring the whole
+   app. The provisioning console is a LATER Eunomia run (after the coordinator F2/F3); this is captured
+   now so that run starts from Victor's proven flow.
+
+**Deferred items Victor flagged (Eunomia-relevant):** (a) **one-sided record after battery swap** —
+the fob counts socket-connected as "started" without verifying recording; a not-yet-ready cam silently
+no-ops → only one wrist records. **His stated defense is INGEST-side: pair by `bimanual_episode_id`,
+void/quarantine the unpaired — and surface it as a QC FLAG, not a silent drop.** This is exactly our
+dual-signal-join + the `recording_suspect`/phantom-gate territory; our ingest + QC must surface
+one-sided takes as a review flag (confirm when the ingest/QC runs land). (b) **camera never-power-off /
+wifi-always-on** not actively asserted yet (needs firmware-confirmed OSC keys + a hardware test). (c)
+**fob provision UX:** when the app sets the kit, the fob still asks the operator to confirm the kit#
+on-screen; Victor wants to skip that (a `kitok=1` serial confirm) and **ask operator ID on-device
+instead** — which ALIGNS with our operator⊥kit decision (operator signs in on the fob; kit is
+provisioned). Good convergence signal.
+
+## FEATURE SPEC 2026-06-24 (Eric) — the god's-view dashboard screen design
+
+Eric described the god's-view dashboard he wants. It is a **three-level drill-down**:
+1. **Operators list** — all operators, each with **name + telemetry** (live status).
+2. **Click an operator → their last 10 episodes** (the most recent episodes we have from that operator).
+3. **Click a video → the player with the episode's metadata alongside** (video left, metadata right).
+
+This is the screen design for the **god's-view** OPS surface already named in the architecture
+(CONTRACT §1 "Ops / god's-view (live)"; SPEC §1.3/§1.4/§4.8 `F-OPS-*`) — NOT a new system. It is a
+**console** (the `consoles/` layer of the monorepo), a CONSUMER of the operational store + the Hades
+render. **It is a LATER Eunomia run — NOT F2** (F2 is the transport firmware). Captured now so the
+console run starts from a real screen spec.
+
+**The spec splits cleanly into two halves with very different buildability:**
+
+- **The HISTORICAL half (last-10-episodes → video + metadata) — the strong, buildable part, NOT
+  blocked.** It is a read over data that already lands: episodes drain to Styx (the operational store)
+  and render on Hades; the metadata is exactly the `eunomia-sidecar/v1` + the operational episode
+  records we've poured into the contract. "Last 10 episodes from operator X" = a query keyed on
+  `operator_id`, resolved via the **session binding** (operator-from-session — THIS is why the
+  operator⊥kit decision matters: the dashboard pivots on operator, so operator must be a first-class
+  identity, not collapsed into kit). "Click a video → player + metadata" = the Hades render (preferred)
+  or the Styx-raw fresh-window fallback (the §1.9 spot-check path) + the episode's sidecar fields shown
+  alongside. **This is essentially umi-qa's territory** (Victor's FastAPI QA viewer on :8090 already
+  does per-operator/per-episode browsing + on-demand clip transcode into a bounded cache) — Eunomia
+  unifies it into the console layer, built against the contract. Eric's drill-down = the natural
+  operator→episodes→clip join over the operational store + render.
+
+- **The LIVE half (the operators list with live telemetry) — real as a design, BLOCKED on the same
+  single-radio problem F2's OQ-4 surfaced.** "Live telemetry per operator" has **no transport today**:
+  the fob's uplink-borrow is **code-disabled** (`uplinkUp()`→`return false` — tearing down the camera
+  AP to borrow the radio drops every camera; verified for F2). The fob KNOWS online/recording state
+  (its L2 station table + the `g_anyRec` toggle), but it cannot PUSH it while hosting the camera AP. So
+  the live operators view needs one of: (a) a **non-AP-destroying uplink** (a second radio / the
+  hardware conversation with Victor — same root as the OQ-3 DS3231/time discussion), or (b) liveness
+  read from a **different vantage** — e.g. Styx seeing cards/episodes land (a "last seen N min ago / last
+  episode at HH:MM" derived liveness, near-real-time at drain/episode granularity, NOT a live battery/SD
+  stream). Recall the architecture already says the god's-view is **near-real-time, not live** (§1.4:
+  events batch at STOP/sign-out) — so Eric's "telemetry" is best served as **state-transition +
+  last-seen** freshness, with battery/SD as best-effort when a real uplink exists. Spec the live strip;
+  name the uplink dependency; do NOT promise a live stream the hardware can't carry yet.
+
+**Design placement (for the later console run):** operators list reads the operational `person` +
+`session` records (who is signed in, on which kit, last-seen) + whatever telemetry the uplink delivers;
+operator→episodes reads the operational `episode` records filtered by `operator_id` (via session),
+newest 10; episode→player reads the footage_reference (Hades render preferred, Styx-raw fresh-window
+fallback) + the sidecar/episode metadata. Tailnet-reachable from Mexico + SF (like the spot-check
+dashboard). Likely the SAME unified dashboard as the spot-check viewer (§1.9) — one Eunomia ops console
+with a spot-check/QC view AND this operator drill-down view, both reading the same store + render, not
+two apps. Folded into SPEC §1.10.
+
+**Dependencies/links:** the live half ⟂ the uplink (OQ-4 / the second-radio-or-different-vantage
+question — flag to Victor alongside the DS3231 time-source conversation, since both are "the fob can't
+do X while hosting the AP" with the same fix family); the historical half ⟂ the operational store +
+the Hades render being populated (i.e. after ingest/QC runs) + umi-qa's transcode/cache logic as the
+reference. Eric's per-operator pivot ⟂ the operator⊥kit decision (already locked) + the session binding
+(0d). NOT blocking F2.
+
+## FEATURE SPEC 2026-06-24 (Eric) — IMU QC heuristics (red-border flagging) + supervisor ground-truth
+
+Eric asked for: (a) heuristics on IMU data that put a **red border around flagged videos** that don't
+adhere; and (b) a way for a **supervisor to add their 'ground truth'** somewhere. He said he thought a
+dashboard using these heuristics is in the x3 repo. **VERIFIED — it exists and is well-developed; both
+asks are already-built prior art in `x3-capture-kit`.** This is the QC + human-label layer Eunomia's
+QC/console builds on; recorded as prior art + the integration contract, NOT an F2 item, NOT a build-now.
+
+**The IMU QC stack (Eric's part a — the machine heuristics):**
+- **`pipeline/qc_score.py`** — THE scorer (its docstring literally quotes Eric's ask: "pre-categorization
+  of saved episodes as bad or not based on accelerometer / gyro data (frequent pauses, out-of-
+  distribution, too slow vs median)"). Pure stdlib (no numpy — runs at ingest or cam-side), runs over
+  the IMU stream the X3 embeds in every `.insv` (`EXTRA_TYPE_GYRO` + `EXTRA_TYPE_SECGYRO`). Emits an
+  **OPEN set of flags with reasons** (no closed taxonomy — repo convention), **defaults to "ok"** (a flag
+  is the exception; thresholds set so a normal episode trips nothing), thresholds in a config dict
+  (`DEFAULT_CONFIG`) so a new site retunes without code edits. The flags: idle_fraction, idle_longest_seg,
+  frequent_pause, freefall/drop (accel), too_slow (COHORT-relative), ood (cohort z-score), tiny/
+  min_duration, shake_gyro_rms (absolute), gyro/accel saturation (clipping → unreliable), jerk_rms
+  (snag/yank/bang signature, absolute). **too_slow + ood only fire when a COHORT is passed** (never
+  guesses a population from one episode) — `pipeline/qc_batch.py` builds that cohort + does batch scoring.
+- **`pipeline/qc_from_imu.py`, `qc_annotate.py`, `insv_to_imu_json.py`** — extraction/annotation glue
+  (insv → per-episode `VID_<ts>_<seq>.imu.json` → scored flags annotated onto each paired row at ingest).
+  `qc_video.py` is the sibling video-QC. Output fields (per `METADATA_SCHEMA.md`): **`qc_flags`/`qc_sus`**
+  (IMU accel/gyro QC from qc_score) + **`quality_flags`** (the DETERMINISTIC bad-video superset: IMU +
+  video/audio + L/R desync).
+
+**The dashboard Eric remembered = `umi-dashboard-real/`** (a FastAPI app). The red-border rendering:
+- **`ledger_rollup.py`** runs `qc_score` over per-episode IMU → `operator_rollup.json`; **`team_stats.py`**
+  reads it and builds the per-operator profile + the cleaned/paired episode list (with a strict
+  **dashboard_ready gate**: deleted/void/unpaired/needs_review episodes are NEVER shown — it never
+  displays a guessed label). **`templates/team_operator.html`** renders the **red-border "sus" episodes**
+  (qc_score's docstring names this file explicitly as where the red border lives). So Eric's "red line
+  around flagged videos" = `team_operator.html` rendering the `qc_flags`/`qc_sus`/`quality_flags` the
+  pipeline already computes. Other dashboard modules: `app.py` (the FastAPI app), `auth.py` (login),
+  `video_index.py` (clip routing), `make_table_cards.py`/`table_cards/`, `gsheet_sync.py` (Google-Sheet
+  sync), `ingest_receiver.py`, `org.py`.
+
+**⭐ The supervisor ground-truth (Eric's part b — what he wasn't sure how to describe) = `umi-dashboard-
+real/labels.py`.** It is the **human good/bad label store** (team-lead + admin QA): a supervisor marks an
+episode **`good`/`bad` with an optional note**; stored **append-only JSONL** at `data/episode_labels.jsonl`,
+**latest line wins** per (episode_id, labeler_email), with **multi-labeler `consensus()`** (good / bad /
+mixed). Record shape: `{episode_id, kit_id, ordinal, side_pair, labeler_email, verdict, note, ts}`. **Its
+docstring states the integration contract verbatim: "This file is the CONTRACT the ingest side reads to
+stamp a `human_label` into release metadata."** So the supervisor's verdict is overlaid on top of the
+machine flags and flows into release metadata. (`pipeline/apply_human_labels.py` — note: in `pipeline/`,
+NOT `pipeline/deploy/` — is the likely ingest-side consumer.)
+
+**So both asks are TWO LAYERS of the same QC surface:** the **machine heuristics** (`qc_score` → the
+auto-flagged red-border "sus" episodes) and the **human ground-truth** (`labels.py` → a supervisor
+good/bad verdict + note, consensus across labelers, stamped into release metadata). The red border = the
+UI rendering of the machine flags; the ground-truth = the human label store that overrides/augments them.
+
+**How this maps into Eunomia (the DECISION — prior art Eunomia's QC + console layer builds on, a LATER
+run, NOT F2):**
+- The **IMU QC heuristics** (`qc_score`/`qc_batch`) are the reference scorer for Eunomia's QC stage. They
+  run at INGEST (Hermes-side per DECIDED-2 / the cleaning+render layer) over the IMU pulled from the front
+  `_00_` lens (`--extract-imu --drop-front`). Eunomia's contract already carries QC outputs: the open-set
+  flags map onto our `qc_flags`/`qc_sus` + the deterministic `quality_flags` (no closed taxonomy — matches
+  our open-string+WARN convention for growth-prone vocab). The cohort-relative flags (too_slow/ood) need a
+  cohort, which is a batch/population concern at ingest, not capture.
+- The **red-border flagging** is a **console rendering concern** — it belongs to the SAME unified ops
+  console as the god's-view operator drill-down (§1.10) and the spot-check viewer (§1.9): a QC view that
+  renders each episode's qc/quality flags as the red border. One console, multiple views, all reading the
+  operational store + the Hades render. `umi-dashboard-real/` is the prototype to unify in (as umi-qa is
+  for spot-check, and team_operator.html is for the operator drill-down).
+- The **supervisor ground-truth** (`labels.py`) is a **human-label / override store** — Eunomia models it
+  as an operational write surface: a supervisor verdict (good/bad + note) per episode, append-only, latest-
+  wins, consensus across labelers, that the ingest/release side reads to stamp a `human_label` into the
+  record. This is the human-judgment counterpart to the machine QC, and it maps to the FUTURE annotation/QC
+  layer (the human-review/override store). Eric's "ground truth" = exactly this: the authoritative human
+  good/bad that supersedes the heuristic guess. Worth a contract touch later (a `human_label` field on the
+  episode/release record + an operational label-event); flag when the QC/console run is scoped — NOT now.
+- **Convergence note:** `qc_score`'s open-set-flags + default-to-ok + config-dict-thresholds is the same
+  design philosophy as our contract's open-string+WARN for growth-prone axes. Eric's pipeline and our
+  contract already agree on "no closed taxonomy, retune without code edits." Good sign for adopting his
+  scorer under our contract.
+
+**Dependencies/links:** the QC heuristics ⟂ ingest populating per-episode IMU JSON (the `--extract-imu`
+front-lens pull — already a known policy) + a cohort for the relative flags; the red border ⟂ the ops
+console run (the same one as §1.9/§1.10); the supervisor ground-truth ⟂ a future `human_label` contract
+field + the annotation/QC layer + supervisor auth (`auth.py` is the prototype). NONE of this blocks or
+touches F2.
+
+## Run F2 transport/ — IMPLEMENTED + reviewed 2026-06-24 (CLEARED TO MERGE pending CI)
+
+F2 (transport/ only, per the approved SPLIT; ui deferred to F3) came back strong and faithful. All four
+headline checks I said I'd scrutinize were delivered and held: the two-hard-rules diff vs the vendored
+main.cpp, seam conformance vs a mock OSC/telnet server incl. persist-before-advance under a FORCED
+NVS-write failure, env-key conformance vs discardd, and BOTH env:esp32 + env:cyd building green with
+transport/vendor/ excluded (vendor = 0 .o). Gates: 75 pytest / ruff / mypy / lint-imports clean; 33/33
+native (16 transport); both board builds SUCCESS; codegen drift 0; zero core//contracts/ diff.
+
+- **Re-vendored to `f96b97a` (the steering note).** OQ-9 closed via option (A) — diff-checked vs
+  `a38f5a9` = ONLY the four expected 2026-06-24 areas (apChannel `{1,6,6}`, camCardCheckAll ghost-STA
+  `nOk>=kMinCams`, lockcams `/osc/info`, upload_speed 115200) — no sprawl, so adapted not stopped
+  (ground-truth discipline). New md5s in PROVENANCE.md superseding `a38f5a9`.
+- **OQ-1 landed exactly as predicted** — zero core change; `coord.take()` populated before `start()`;
+  proven by test_coordinator_two_hard_rules_and_oq1; the public-accessor guardrail held.
+- **persist-before-advance proven under a forced NVS failure** (test_persist_before_advance_under_nvs_
+  failure): `fail_next` → trigger() returns false → ordinal stays 0 (not burned) → no startCapture →
+  rolled back before the burst. NvsStore::write_i64 returns false on a 0-byte write (the gate).
+- **NVS 15-char-key remap:** core's `fob_episode_ordinal` (19) > ESP32 NVS 15-char limit → mapped to
+  `"ord"` in the transport seam (`nvs_key_for`), zero core change. Clean.
+
+**⭐ OQ-10 (env-key conformance vs discardd) — one silently-lost field found: OPERATOR_NAME. DECISION:
+ACCEPT the ledger-only loss; do NOT add it back.** discardd reads OPERATOR_NAME (oncam/discardd:395,537)
+but ONLY into its own discards.jsonl/episode_files.jsonl LEDGERS — NOT into the v2 sidecar identity{};
+core::project_assignment_env drops it. Reasoning for accepting the loss (consistent with the locked
+model, not minimal-effort): `operator_id` is the CANONICAL identity (operator⊥kit); the name is a
+PROJECTION resolvable from the person record; baking it into the env is denormalization that drifts on
+rename/typo-fix while the id never does; discardd's ledgers are operational logs, NOT the system of
+record (Eunomia's operational store is, and it resolves id→name by design); and the loss touches nothing
+live — kit_56/57 run VICTOR'S fob (still emits the name), so the existing dashboard is unaffected; the
+loss only concerns Eunomia's FUTURE coordinator feeding discardd, where id→name resolution is the
+intended path. **Flip-condition (the only cases to add the one-line emit, marked denormalized-convenience
+NOT identity):** if OPERATOR_NAME is capture-time ground-truth not reconstructable from the id, OR if
+discardd ledger rows carry the name but NOT the id (orphaning them). SESSION_ID conformant (discardd
+never reads FOB_SESSION_ID); TASK_ID/ROTATION_ID additive-correct. The check is encoded as
+test_env_key_conformance_with_discardd.
+
+**⭐ CORRECTION [NOT YET FOLDED IN → SPEC §1.7/§1.8 dedicated-core claim]: there is no trigger queue.**
+Ground-truth from Victor's code (the agent's finding, sound): his `wifiTask`/queue serve the DISABLED
+uplink, NOT the trigger. The trigger OSC runs INLINE on the loop core under the wifi lock (fast — fire-
+and-forget, ~120 ms grace/fire); DISCOVERY/presence runs on core 0, lock-serialized (so a mid-take
+camera drop is still detected). The instant touch-ack is `core/button_feedback` decoupling the visual
+from the slow action (set working-state synchronously on tap → fire → settle) — NOT "the UI thread isn't
+blocked" (the UI is INTENTIONALLY in working-state during the brief inline fire). So SPEC §1.7's "network
+work on a dedicated core so the UI never stalls … the instant touch-ack is only possible because the UI
+thread isn't blocked" needs nuancing: discovery on a dedicated core (yes); trigger inline (UI in
+working-state during the fire); touch-ack = button_feedback. Fold into the next docs pass WITH the §1.7
+fob-doesn't-write-sidecar correction. The `wifi_worker` was folded into hw/app.cpp (mutex + core-0 task,
+no separate file) — fine.
+
+**clang-tidy (OQ-11):** configured + scoped to `core/` + `transport/proto/` (excludes vendor +
+framework-coupled `hw/`), wired blocking-in-CI via a tool-guarded target; NOT run on the worktree host
+(binary absent → verified-by-config). **MERGE-GATE CAVEAT: CI must HARD-FAIL (not skip) if clang-tidy is
+absent** — a tool-guarded skip can mask a non-running blocking gate; the PR check must actually exercise
+it green before the squash-merge. hw/-exclusion ACCEPTED for F2 (framework-coupled → tidy-noisy); `hw/`
+tidy with a HeaderFilterRegex is a later tuning item, not never.
+
+**MERGE STATUS: CLEARED to commit + open PR** (no code change blocks it — OPERATOR_NAME = accept-loss).
+Conditions before squash-merge: (1) CI green INCLUDING clang-tidy actually running (not skipped); (2)
+Conductor does the squash-merge; (3) delete the remote branch post-merge. Squash subject `[FEAT] Run F2
+— coordinator/transport/ …` fine. **Branch nit:** report shows `Mzcassim/revendor-fob-transport` (capital
+M, off-pattern) — convention is lowercase `mzcassim/`; prefer `mzcassim/eunomia-run-f2-transport` to match
+F1. Record the squash hash here post-merge. After F2 merges → F3 = ui/ (renders core/button_feedback —
+which is where the touch-ack actually lives — + the camera-count color + REGISTRO/MESA/MAIN/CONFIRM +
+operator sign-in per OQ-7-flow (b)-lite; the app already plumbs operator_id distinct from kit_id, so F3
+only adds the selection UI).
+
+## Run F2 — CLEARED, handed to Conductor for squash-merge 2026-06-24
+
+PR **#6** (https://github.com/Pantheon-Industries-Inc/Eunomia/pull/6), branch
+`mzcassim/eunomia-run-f2-transport` (lowercase convention, base `main`), single commit `f13f42f` (33
+files), `mergeable: MERGEABLE` / `mergeStateStatus: CLEAN`, 0 behind / 1 ahead, zero core//contracts/
+drift re-confirmed. All checks green: `gates` pass, `cpp` pass (clang-format per-file · native build+test
+· esp32 build · cyd build · clang-tidy blocking · camera-image checksum).
+
+- **clang-tidy CI verification (the one gate not exercised on the worktree host) — PASSED + verified
+  both ways.** CI log shows it executing (`[1/5]…[5/5] Processing …/transport/proto/*.cpp`), no
+  "NOT installed / skipped" line; the hard-fail-if-absent guard confirmed (absent+CI → non-zero exit;
+  present → green). The load-bearing merge condition is met.
+- **clang-tidy BLOCKING SCOPE narrowed to `transport/proto/` ONLY** (off the accepted `core/`+proto/).
+  Reason: `core/` (F1 code) has **5 pre-existing `performance-enum-size` findings**; fixing them would
+  edit core/, outside F2's transport-only boundary. **ACCEPTED** — narrowing in the safe direction, not
+  a regression (F1 never caught them; tidy wasn't blocking then), preserves the zero-core-diff invariant.
+  **FOLLOW-UP (tiny core PR, fold with/before F3):** clear the 5 `performance-enum-size` enums + extend
+  blocking tidy scope to `core/`. Note F3's `ui/` is framework-coupled (TFT_eSPI) like `hw/` → excluded
+  from tidy, so the natural scope-extension is `core/` only.
+- **CI deviations (both sound, both necessary for a deterministic gate, both ACCEPTED):**
+  (1) clang-format/clang-tidy **PINNED via PyPI wheels** (`clang-format==22.1.5`, `clang-tidy==22.1.7`)
+  instead of unpinned apt — apt's version disagreed with local 22.x on brace spacing + UTF-8 trailing-
+  comment alignment; pinning makes local==CI deterministic; verified clean incl. core/. **Standing
+  convention:** devs should install the SAME pinned wheel (via the dev setup) so dev-local == CI — don't
+  rely on apt/brew. (2) clang-format gate is **PER-FILE** (`xargs -n1`) — the clang-format-22 multi-file
+  `--dry-run` quirk exits 1 on clean files; per-file is equivalent + version-robust; `transport/vendor/`
+  pruned. (Both also touch the F1 baseline; now consistent across the gate.)
+- **Open items (all per the GO):** OPERATOR_NAME = ledger-only loss, no code change, conformance test
+  retained; clang-tidy scope accepted (narrowed, see above); SPEC §1.7 no-queue correction left untouched
+  (the tracked docs-pass item).
+
+**HANDED to Conductor for the squash-merge.** Post-merge: delete the remote branch; **the squash produces
+a NEW commit on `main` (NOT `f13f42f`, which is the pre-merge branch commit)** — record THAT squash hash
+here, matching the F1 pattern. **[SQUASH HASH ON MAIN: PENDING]**
+
+Squash subject: `[FEAT] Run F2 — coordinator/transport/: seams on Victor's WiFi-OSC fob (env:cyd +
+clang-tidy blocking)`.
