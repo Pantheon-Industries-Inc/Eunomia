@@ -1068,3 +1068,167 @@ principle: the visual acknowledgement is decoupled from the slow action on every
 can be double-fired mid-action — the operator never guesses whether a press landed, regardless of
 which control. A genuinely-instant button needs no working-state (the rule is scoped to "perceptible
 delay"). Folded into SPEC §1.8 (retitled from START-only to the general rule).
+
+## Firmware prior-art reconnaissance 2026-06-24 (the WiFi-OSC fob is the live direction)
+
+**CORRECTION — there are TWO fob source trees; the WiFi-OSC one is current.** In
+`github.com/Pantheon-Industries-Inc/x3-capture-kit` (the predecessor repo, the source to build the
+firmware run on):
+- `ble_bridge/esp32-fob/` = the **OLD BLE fob** (fw 2.1.0). Its README says "WiFi purged 2026-06-22"
+  — that purge applies to THIS variant only. The handoff says explicitly: "do not confuse/overwrite."
+- `ble_bridge/esp32-fob-wifi/` = the **LIVE WiFi-OSC fob** (fw 3.8.3), validated end-to-end on the
+  rig **2026-06-23** (AFTER the BLE README date). **This is the direction Eunomia was designed
+  against — our WiFi/OSC/telnet/SoftAP model is correct, NOT stale.** (Initial recon misread the BLE
+  README as current; Mo corrected — there IS WiFi firmware; Victor is sending more soon.)
+
+**PROVEN RIG FACTS (from `HANDOFF_2026-06-23_WIFI_OSC_TRIGGER.md` + the two companion docs
+`X3_LIVE_TRIGGER_EXPERIMENTATION.md` / `_REPLICATION.md`) — these are now confirmed constraints, not
+design assumptions, and the firmware run MUST build on them:**
+- **Architecture:** the ESP32/CYD fob hosts a **2.4 GHz SoftAP** (`PANTHEON-kit_<n>`, OPEN,
+  192.168.42.1, DHCP .2–.6); both X3 cameras join as **WiFi STAs** (via the `S99zfobjoin` supervisor
+  = persistent direct `wpa_supplicant` join, ZERO OSC); on GRABAR/DETENER the fob drives each cam over
+  **OSC :80** (start/stop) + **telnet :23** (metadata env + clip name). This is exactly the
+  CoordinatorPort + swappable-transport model.
+- **THE TWO HARD RULES (violating either breaks it):** (1) **Zero background OSC** — the X3 cherokee
+  OSC server is single-threaded and **CRASHES on concurrent/overlapping OSC**; so camera-presence is
+  tracked at **L2 only** (`esp_netif_get_sta_list` / the AP DHCP-station table, NO OSC polling), the
+  camera supervisor does zero OSC, and the fob emits OSC **only** at GRABAR/DETENER, **serialized
+  under `wifiLock`**. (2) **discardd locks video mode; the fob does NOT arm per take** — discardd
+  continuously re-asserts `RES_3008_1504P100`/`captureMode=video`, so the fob fires `startCapture`
+  directly. Recording DEPENDS on discardd running on every card. (Both match our decisions exactly.)
+- **The ~3 s start delay is real + root-caused:** the X3 re-initializes its capture pipeline at
+  `startCapture` (live-view blackout + front-lens flash). This IS the justification for the SPEC §1.8
+  button-feedback rule. **Proper fix = camera-side PRE-ARM via discardd's ambashell path** (OSC prearm
+  is DEAD on X3 fw 1.1.6 — `prearm_osc_skipped`). The big remaining latency win, camera-side, Eric's
+  discardd has prearm logic.
+- **Camera clock is POISON** (no RTC, jumps backward) — confirm a recording by clip COUNT
+  (`ls | grep -c VID_`) or file growth, NEVER by timestamp. (= our C-10, verbatim from the rig.)
+- **OSC transport details the firmware run needs:** OSC has an **off-by-one RESPONSE lag** (the
+  response is the PREVIOUS request's result) and the POST blocks the full timeout — so the fob
+  **fires-and-forgets** (`oscSendNoWait`: raw socket, send+flush+~120ms grace+close, never read the
+  body); the clip filename comes from **telnet `ls`**, never the OSC response. `startCapture` with NO
+  card crashes cherokee → reboot to recover (discardd gates on a present card). **NEVER edit
+  `/pref/wifi.conf`** (STA-to-absent-SSID = soft-brick); NEVER use `sta_start.sh`/`sta.sh` (kills
+  instaAIP / band-locks). exFAT only; `curl -4` always (NAT64 tether trap).
+- **Metadata-at-capture refines the join:** discardd stamps a per-clip `VID_<ts>_<seq>.pantheon.json`
+  (station/task/episode/seq/record_settings) on the SD AT capture. So the **live-metadata channel is
+  PRIMARY; the order-join (`pipeline/trigger_join.py`, Nth START ↔ Nth clip) is the FALLBACK** — and
+  live metadata enables collect-anywhere (incl. operators at home), nothing depends on office WiFi.
+- **Live firmware state:** fob `3.8.3-fast-guard`; cameras `Insta360X3FW_fobjoin.bin` rev4
+  (md5 0ddc285e…); discardd installed on both cards. The fob version history (3.1.1 → 3.8.3, with
+  marked DEAD-ENDS: 3.5.0 flush re-crash, 3.8.1 start-first broke stop, GPS/BLE data channels dead,
+  OSC prearm on 1.1.6 dead) is the hard-won state the run must build ON, not rediscover.
+- **Provisioning-daemon reconciliation:** in the WiFi-OSC world the fob HAS telnet (:23), so Victor's
+  "SD daemon pushes connection info to the fob over telnet" is COHERENT here (it would not have been in
+  the BLE-only world). The daemon fits the WiFi-OSC architecture cleanly. Camera fob-target is
+  provisioned in NAND (`/pref/pantheon_fob.env`, survives flash); the zero-touch goal derives
+  `FOB_SSID` from the NAND kit_id.
+
+**DECISION — HOLD the firmware-coordinator prompt until Victor sends his update.** The firmware run is
+the most coupled to Victor's in-flight work (the WiFi-OSC fob 3.8.3, the SD provisioning daemon, and
+whatever he's improving). Writing the prompt against a fast-moving snapshot risks a prompt that's wrong
+by run time (initial recon nearly baked in a backwards "BLE-only" assumption). When Victor's update
+lands, fold it in, THEN write the prompt — build-on-Victor's-proven-firmware (Mo's call) means reading
+his actual current code, not a point-in-time reconstruction. The four firmware design inputs still
+stand (implements CoordinatorPort; emits the nested sidecar shape — the 0b carry-forward; instant-ack/
+lockout/spam-safe on all delayed buttons — SPEC §1.8; receives the SD-daemon provisioning push over
+telnet). Add to them: build on the `esp32-fob-wifi` 3.8.3 lineage + honor THE TWO HARD RULES.
+
+## Victor's firmware bundle received + read 2026-06-24 (`pantheon-x3-firmware_2026-06-24.zip`)
+
+Victor delivered the full firmware bundle (rootkit v0.7.1, capture KIT_VERSION 0.10.0). Three parts:
+**camera/** (`Insta360X3FW_fobjoin_rev4.bin`, md5 `0ddc285e…` — matches the handoff; + a STOCK
+recovery bin), **fob/** (compiled ESP32 binaries only — `fob_MERGED_flash_at_0x0.bin` + parts; the
+build still reports `3.8.3-fast-guard` but INCLUDES the 2026-06-24 fixes: channel-11 avoidance,
+`lockcams /osc/info`, the battery-swap/ghost-REVISA guard; fob source lives in the repo's
+`esp32-fob-wifi/`), and **sd-card-rootkit/** (the authoritative readable source: `discardd` is a
+~2017-line POSIX shell script, plus `bootup.sh`, `x3_join_fob.sh`, `x3_fob_link.sh`, `autoexec.ash`,
+`install_sd_rootkit.sh`, `S61discardd`, and the `fobjoin_arm64`/`armv7` static binaries). This CONFIRMS
+the WiFi-OSC direction is live and gives the firmware run its real ground truth.
+
+**⭐ THE 0b SIDECAR CARRY-FORWARD — RESOLVED with the exact shapes (correcting my earlier imprecise
+note).** discardd's `pantheon-x3-sidecar/v2` writer (the `cat > "$sidecar"` block) IS nested — NOT
+"flat/scattered" as I'd loosely recorded. The real shape:
+- Top-level: `ts` (the agent's own write-time string, NOT used as authoritative time), `schema`
+  (`pantheon-x3-sidecar/v2`), `kit_version` (= the capture-stack version string), `layout`,
+  `timestamp`, `seq` (a QUOTED STRING — confirms the int-vs-string divergence), `qc_status`,
+  `qc_reason`, `global_episode_seq` (int), `archive` (int 0/1), `back_size`/`front_size`,
+  `record_format_version` (int).
+- `files`: nested `{back,front,lrv}` each `{raw, canonical}`.
+- `timing`: nested `{started_unix, stopped_unix, start_skew_ms}` — fob-sourced (NTP), the AUTHORITATIVE
+  time (camera clock is poison; the top-level `ts` is just the agent's write moment).
+- `identity`: ONE big nested block holding EVERYTHING else — `camera_id, kit_id, side, operator_id,
+  station_id, site_id, task_id, task_name, prompt, task_source, session_id, episode_id,
+  bimanual_episode_id, fob_id, fob_build, camera_firmware, stop_reason, rotation_id, calibration_id,
+  record_settings`.
+- **The precise divergence from the 0b contract:** the rig LUMPS provenance (`fob_id`, `fob_build`,
+  `camera_firmware`), outcome (`stop_reason`), and assignment (`task_*`, `prompt`) all INSIDE
+  `identity`; the 0b contract split these into clean `identity`/`timing`/`provenance`/`outcome`
+  namespaces. So it's NOT "flat vs nested" — both nest — it's **"one big `identity` block" (rig) vs
+  "clean-namespaced sub-objects" (contract)**, plus string-vs-int `seq` and `pantheon-x3-sidecar/v2`
+  vs `eunomia-sidecar/v1`. **The firmware-run decision (unchanged in spirit, now exact):** either
+  discardd's `identity` block is split into the contract namespaces, OR ingest tolerates the rig's
+  lumped shape. This is a firmware-vs-ingest call; the exact field lists on both sides are now known.
+
+**CONFIRMED FROM THE LIVE CODE (decisions we'd made, now verified against discardd):**
+- **Two-axis versioning is REAL in the writer:** `kit_version` (capture-stack/record version string)
+  ⊥ `record_format_version` (forensic build-scoping int), with discardd's own comment pointing at
+  `pantheon_sidecar_schema.py` "Record-format version." Exactly CONTRACT §5.
+- **Front-lens / IMU policy RESOLVED + mechanism confirmed:** the IMU (gyro/accel) track is embedded
+  ONLY in the FRONT `_00_` `.insv` (the back `_10_` reports "unsupported"). So discardd KEEPS the
+  front on-card through offload (`DELETE_FRONT_AFTER_KEEP=0` default); the front HEMISPHERE imagery is
+  dropped DOWNSTREAM at ingest via `insv_to_imu_json.py --extract-imu --drop-front`, never on-cam.
+  This is exactly our "IMU extraction stays Eunomia/ingest-side; front dropped from training AFTER
+  extraction" boundary — now with the precise reason (lose the front file = lose the IMU forever).
+- **CAPTURE_LAYOUT for 3K/100 = `single`:** ONE `.insv` (tagged `_00_`) holding BOTH fisheye circles
+  side-by-side (2944×1472 = two 1472×1472 circles); `.insv` not `.mp4` is Insta360's container for any
+  360/dual-fisheye take; that single file IS the keeper, nothing disposable, front-delete must NEVER
+  run. (Hardware-confirmed 2026-06-19.) Refines our "dual-fisheye SBS" detail with exact dims + keeper
+  logic. (`auto` default detects dual-vs-single per-seq for back-compat with legacy 5.7K30 pairs.)
+- **Archive-on-DESCARTAR is non-destructive:** the fob fires `/tmp/archive.trigger`; discardd KEEPS
+  the clip, re-stamps `archive=1` + `stop_reason=operator_discard` + an `archive_marked` ledger entry,
+  so ingest routes it to the archive bucket. Matches our `archive`/`stop_reason` fields + void-by-flag.
+- **NAND `/pref/` identity layout confirmed:** `pantheon_camera.env` (identity), `pantheon_current_
+  task.env` (task/prompt — carries ONLY task fields, never identity; live SD `current_assignment.env`
+  overrides; = our task-precedence + the "self-stamp task even when the cam never sees a live
+  assignment" path), `pantheon_episode_seq` (NAND monotonic per-camera counter, survives SD + battery
+  swaps = our durable global_episode_seq ordinal).
+- **discardd's hard boundary = our transport/core split, verbatim:** "this agent NEVER touches wifi,
+  ap_start.sh, wpa_supplicant, bt_stop.sh, or any network lifecycle… network bring-up belongs to
+  instaAIP." (After a 2026-06-10 incident that hung LEFT's UI.) Confirms the no-background-network +
+  zero-OSC-poll rule from the camera side.
+- **Trigger mechanism = file-touch:** the fob drives discardd by touching `/tmp/{discard,archive,
+  front_cleanup,health,start_at,stop_at,sync_arm,latency_probe}.trigger`; `start_at`/`stop_at` carry
+  line1=epoch (may be fractional for sub-second cross-cam sync), line2=episode_id. The fob writes
+  per-take outcome + cross-cam timing to `current_stop.env` at STOP, bound to the take by
+  `bimanual_episode_id` so a stale stop file is never mis-applied.
+
+**NEW / IN-FLIGHT details for the firmware run:**
+- **Cross-cam START sync work (the ~3s-latency "proper fix"):** measured BLE trigger reaches both cams
+  in ~6µs, but each cam's record-start lands ~32ms median (25–272ms) later because the encoder
+  COLD-STARTS per shutter. The fix is camera-side PRE-ARM (`PREARM_MODE` loopRecording/preRecord, and
+  `PREARM_DELAY_S` via the X3's built-in shutter selftimer with PCM countdown beeps — both cams run the
+  SAME firmware countdown → variance collapses toward the ~33ms frame floor). **HARD-WON: `t app test
+  prerecord start` in `autoexec.ash` HANGS THE BOOT** (autoexec runs before the capture pipeline
+  exists) — prearm is now done via the LIVE AmbaIPC PT_ service (0x20000008) AFTER full boot, not at
+  boot. OSC prearm is dead on X3 1.1.6. This is in-flight, camera-side, the big remaining latency win.
+- **A WiFi-join STRATEGY divergence in Victor's own code (read the delivered code, not one handoff):**
+  the WiFi-OSC handoff said "NEVER use `sta.sh`/`sta_start.sh` (kills instaAIP / band-locks)" and the
+  `S99zfobjoin` supervisor used direct `wpa_supplicant`; BUT the delivered `x3_join_fob.sh` says "THE
+  ONE CORRECT WAY: `wifi_stop.sh → load.sh sta → sta.sh`" (the vendor STA path, because skipping
+  `load.sh sta` leaves the radio in AP-firmware mode → SIOCSIFFLAGS). These are two different join
+  approaches in his own tree — an active evolution. **LESSON: the firmware run's agent must read the
+  ACTUAL delivered scripts as ground truth, not reconcile from a single handoff doc.** It also has a
+  mature self-healing health model (IP+OSC both required; "zombie" = IP-but-OSC-dead → rate-limited
+  self-reboot; no-IP → re-join only, never boot-loop).
+- **`autoexec.ash` = the Ambarella RTOS boot hook** (the RTOS owns sensors/ISP/encoder = ~80% power +
+  nearly all heat; cpufreq on the Linux side barely matters). Power/thermal levers (single-lens-back
+  `focusSensor=2`+`expectOutputType=1`+`stitch_enable=0`, `preview_mctf_enable=0`, `flow_state_level=0`,
+  `mute=1`) are set by discardd over OSC at boot, NOT via autoexec verbs.
+
+**Implication for Eunomia:** the camera-side + fob behavior is FURTHER ALONG and more proven than the
+contract assumed — and it largely MATCHES (two-axis versioning, the IMU/front policy, the durable
+ordinal, the task-NAND path, the archive path, the transport/core boundary). The firmware run is
+therefore mostly ADAPTER + RECONCILIATION work (build on this proven stack, emit/tolerate the contract
+shape, implement CoordinatorPort over the real OSC/telnet/file-trigger mechanism), NOT a rewrite —
+matching Mo's "build on Victor's proven firmware, rewrite only what the clean architecture requires."
