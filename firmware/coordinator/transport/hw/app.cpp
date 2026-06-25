@@ -5,6 +5,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
+#include <string>
 #include <vector>
 
 #include "clock_rng.h"
@@ -19,6 +20,10 @@
 #include "wifi_conn.h"
 #include "x3_capture_device.h"
 #include "x3_protocol.h"
+
+#ifdef PANTHEON_HAS_TFT
+#include "flow.h" // the ui/ composition (F3); behind the guard so the headless esp32 build excludes it
+#endif
 
 #ifndef PANTHEON_PIN_BUTTON
 #define PANTHEON_PIN_BUTTON 0 // BOOT button on most ESP32 dev boards / the CYD
@@ -70,6 +75,13 @@ ProvisioningReceiver g_prov_rx;
 Coordinator *g_coord = nullptr;
 SemaphoreHandle_t g_wifi_lock = nullptr;
 const std::vector<std::string> kFleetSides = {"left", "right"};
+
+// The live L2 present count, cached by the discovery task (the lock owner) for the lock-free UI
+// read (Victor's g_connCount pattern). The UI loop (core 1) must NOT read the registry directly
+// while the discovery worker (core 0) mutates it. Computed via Coordinator::present_count() (F3
+// FLAG-C). Frozen during a take (discovery skips while recording), exactly as Victor's periodic
+// refresh does.
+volatile std::uint32_t g_present_cached = 0;
 
 void lock_wifi() {
   if (g_wifi_lock) {
@@ -241,6 +253,75 @@ void poll_button() {
   }
 }
 
+#ifdef PANTHEON_HAS_TFT
+// ---- the ui/ composition root (F3): UiHost over the coordinator + the wifi-locked operator
+// actions. ui/ depends only on core + this seam; the wiring (transport knowing ui) lives HERE, at
+// the root. ----
+eunomia::ui::Flow *g_flow = nullptr;
+
+std::string canonical_kit(const char *k) {
+  std::string s = (k != nullptr) ? k : "";
+  return s.rfind("kit_", 0) == 0 ? s : "kit_" + s;
+}
+
+void set_identity(const char *key, const String &val) {
+  Preferences p;
+  p.begin("pantheon-fob", false);
+  p.putString(key, val);
+  p.end();
+  reload_assignment();
+}
+
+// DESCARTAR = void+keep: mark archive=1 and RE-PUSH current_stop.env so discardd routes it to
+// archive (the take is already stopped + the archive=0 stop-env pushed by toggle_record's STOP
+// branch).
+void ui_discard_take() {
+  if (g_coord == nullptr) {
+    return;
+  }
+  lock_wifi();
+  g_coord->mark_archive();
+  eunomia::Sidecar rec;
+  rec.archive = g_coord->take().archive; // now 1
+  for (const auto &side : kFleetSides) {
+    g_coord->write_sidecar(side, rec);
+  }
+  unlock_wifi();
+  Serial.println("[ui] DESCARTAR (archive=1 re-pushed)");
+}
+
+class AppUiHost : public eunomia::ui::UiHost {
+public:
+  State core_state() override { return g_coord != nullptr ? g_coord->state() : State::Idle; }
+  std::size_t present_count() override { return g_present_cached; }
+  std::size_t required_cameras() override { return 2; }
+  const char *station() override { return g_assignment.station_id.c_str(); }
+  const char *prompt() override { return g_assignment.prompt.c_str(); }
+  const char *kit_id() override { return g_assignment.kit_id.c_str(); }
+  bool kit_provisioned() override { return !g_assignment.kit_id.empty(); }
+  void record_toggle() override { toggle_record(); }
+  void save_take() override { Serial.println("[ui] GUARDAR (take kept; stop-env already pushed)"); }
+  void discard_take() override { ui_discard_take(); }
+  void set_kit(const char *k) override { set_identity("kit", String(canonical_kit(k).c_str())); }
+  void sign_in(const char *op) override { set_identity("op", String(op)); }
+  void select_table(const char *t) override {
+    Preferences p;
+    p.begin("pantheon-fob", false);
+    p.putString("station", t);
+    p.putString("prompt", String("Mesa ") + t + " | Table " + t);
+    p.end();
+    reload_assignment();
+  }
+  void call_lead() override {
+    // KEEP the local help-event log; the dashboard "bell" POST is DEFERRED to the god's-view live
+    // uplink (SPEC §1.10) — the radio-borrow POST path is code-disabled (DisabledUplink). (F3
+    // FLAG-E.)
+    Serial.printf("[ui] CALL LEAD (help logged: kit=%s station=%s; dashboard POST deferred)\n",
+                  g_assignment.kit_id.c_str(), g_assignment.station_id.c_str());
+  }
+};
+#endif // PANTHEON_HAS_TFT
+
 void discovery_task(void *) {
   for (;;) {
     // Refresh L2 presence only between takes — never churn the radio mid-burst (Victor's
@@ -250,6 +331,7 @@ void discovery_task(void *) {
       lock_wifi();
       g_softap.ensure_up();
       g_registry.update(g_softap.station_snapshot());
+      g_present_cached = static_cast<std::uint32_t>(g_coord->present_count()); // FLAG-C (lock held)
       g_prov_rx.poll(); // gated (OQ-8) — no-op unless PANTHEON_SD_DAEMON_RX
       unlock_wifi();
     }
@@ -303,11 +385,27 @@ void app_setup() {
   Serial.printf("[boot] kit=%s ssid=%s ch=%u sides=%s\n", g_assignment.kit_id.c_str(),
                 g_softap.ssid().c_str(), static_cast<unsigned>(g_softap.channel()),
                 g_store.sides_csv().c_str());
+
+#ifdef PANTHEON_HAS_TFT
+  // The CYD touchscreen (F3): the UI render + touch loop lives on core 1 (this loop); the discovery
+  // worker is on core 0 — the dedicated-core split. ui posts inputs through AppUiHost.
+  static AppUiHost ui_host;
+  static eunomia::ui::Flow ui_flow(ui_host);
+  ui_flow.begin();
+  g_flow = &ui_flow;
+  Serial.println("[boot] ui/ (CYD touchscreen) up");
+#endif
 }
 
 void app_loop() {
   poll_serial();
-  poll_button();
+#ifdef PANTHEON_HAS_TFT
+  if (g_flow != nullptr) {
+    g_flow->tick(millis()); // touch + render on core 1 (the BOOT-button path is headless-only)
+  }
+#else
+  poll_button(); // headless (esp32): BOOT button = GRABAR/DETENER (no screen)
+#endif
   delay(8); // ~125 Hz input poll; OSC/telnet run on this core but are fire-and-forget (fast)
 }
 

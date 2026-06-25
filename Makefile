@@ -9,13 +9,15 @@
 PIO ?= pio
 # Hand-written firmware C++ only — prune .pio/ (downloaded libs) and contracts/_generated (codegen).
 CPP_FILES := $(shell find firmware -path '*/.pio' -prune -o -path '*/vendor/*' -prune -o \( -name '*.cpp' -o -name '*.cc' -o -name '*.h' -o -name '*.hpp' \) -print 2>/dev/null)
-# clang-tidy scope (OQ-11): the framework-FREE F2 logic where the two hard rules live —
-# transport/proto/ (all clean under the enabled checks). transport/hw/ is Arduino-framework-coupled
-# (the "framework noise" the scope excludes) and transport/vendor/ is reference; both are out of scope.
-# core/ is DEFERRED from the blocking scope this PR: it (F1 code) has pre-existing performance-enum-size
-# findings whose fix would edit core/ — out of F2's transport-only / no-core-changes boundary. Extend
-# to core/ in a follow-up core PR that clears those (flagged in the report).
-TIDY_FILES := $(shell find firmware/coordinator/transport/proto -name '*.cpp' 2>/dev/null)
+# clang-tidy scope (OQ-11 / F3 FLAG-F): the framework-FREE hand-written logic where the two hard rules
+# + the trigger core live — core/ + transport/proto/ (all clean under the enabled checks).
+# transport/hw/ is Arduino-framework-coupled ("framework noise"), ui/ is framework-coupled too
+# (TFT_eSPI), and transport/vendor/ is reference; all three are out of scope. core/ was DEFERRED in F2
+# (its pre-existing performance-enum-size findings would have edited core/, out of F2's transport-only
+# boundary); F3 cleared the 5 enums (explicit underlying type) and extends the blocking scope to core/
+# here — the .cpp set below AND the .clang-tidy HeaderFilterRegex (the enums live in HEADERS, so both
+# halves are required to actually catch them).
+TIDY_FILES := $(shell find firmware/coordinator/core firmware/coordinator/transport/proto -name '*.cpp' 2>/dev/null)
 
 .PHONY: gates gates-python gates-cpp gates-cpp-tidy codegen drift camera-image-checksum help
 
@@ -60,7 +62,7 @@ gates-cpp:
 # images carry clang-tidy and enforce it.
 gates-cpp-tidy:
 	@if command -v clang-tidy >/dev/null 2>&1; then \
-	  echo "clang-tidy (blocking, scoped: transport/proto/)"; \
+	  echo "clang-tidy (blocking, scoped: core/ + transport/proto/)"; \
 	  EXTRA=""; [ "$$(uname)" = "Darwin" ] && EXTRA="-isysroot $$(xcrun --show-sdk-path)"; \
 	  clang-tidy $(TIDY_FILES) -- -std=c++17 -Ifirmware/coordinator/core \
 	    -Ifirmware/coordinator/transport/proto -Icontracts/_generated/cpp $$EXTRA; \

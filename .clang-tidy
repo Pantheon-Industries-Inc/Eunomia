@@ -1,9 +1,10 @@
-# BLOCKING since Run F2 (OQ-13/OQ-11): flipped on when coordinator/transport/ landed.
-# Scoped to the framework-free F2 logic (transport/proto/) via the Makefile's TIDY_FILES + the
-# HeaderFilterRegex below. transport/vendor/ (Victor's reference source) and the Arduino-coupled
-# transport/hw/ are NOT linted (blanket tidy over framework code is noise). core/ is deferred from the
-# blocking scope this PR (pre-existing performance-enum-size findings would need core/ edits — out of
-# F2's transport-only boundary; extend in a follow-up core PR).
+# BLOCKING since Run F2 (OQ-13/OQ-11): flipped on when coordinator/transport/ landed; scope EXTENDED to
+# core/ in Run F3 (FLAG-F) after the 5 performance-enum-size findings were cleared (explicit underlying
+# type on each core/ enum). Scoped to the framework-free hand-written logic (core/ + transport/proto/)
+# via the Makefile's TIDY_FILES + the HeaderFilterRegex below — the core/ enums live in HEADERS, so the
+# regex MUST cover core/ for the check to fire. transport/vendor/ (Victor's reference source), the
+# Arduino-coupled transport/hw/, and the framework-coupled ui/ (TFT_eSPI) are NOT linted (blanket tidy
+# over framework code is noise).
 #
 # bugprone-easily-swappable-parameters is disabled: it fires on ordinary multi-string/int signatures
 # (telnet_run, build_write_file_cmd, …) and is widely treated as noise, not a real-bug signal.
@@ -13,4 +14,4 @@ Checks: >
   performance-*,
   -bugprone-easily-swappable-parameters
 WarningsAsErrors: 'clang-analyzer-*,bugprone-*,performance-*'
-HeaderFilterRegex: 'firmware/coordinator/transport/proto/.*'
+HeaderFilterRegex: 'firmware/coordinator/(core|transport/proto)/.*'

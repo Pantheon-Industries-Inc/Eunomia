@@ -8,17 +8,19 @@
 #ifndef EUNOMIA_COORDINATOR_CORE_TRIGGER_STATE_MACHINE_H
 #define EUNOMIA_COORDINATOR_CORE_TRIGGER_STATE_MACHINE_H
 
+#include <cstdint>
+
 namespace eunomia::core {
 
 // idle → arming → starting → recording → stopping → idle. arming/starting bracket the START burst
 // (presence gate + the per-camera OSC fires); the ~3 s pipeline re-init lives in `starting`.
-enum class State { Idle, Arming, Starting, Recording, Stopping };
+enum class State : std::uint8_t { Idle, Arming, Starting, Recording, Stopping };
 
 // Operator inputs offered to the machine.
-enum class Input { Start, Stop };
+enum class Input : std::uint8_t { Start, Stop };
 
 // What the caller (the Coordinator) should do in response to an offered input.
-enum class Action {
+enum class Action : std::uint8_t {
   Ignored,    // dropped by spam-safety: the input is not valid from the current state
   BeginStart, // idle + Start → caller runs the presence gate + START sequence
   BeginStop   // recording + Stop → caller runs the STOP sequence

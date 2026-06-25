@@ -8,16 +8,17 @@
 //   * episode_id (UUIDv4) + display_id + the durable fob episode_ordinal + fob_session_id,
 //   * the fob-side ordinal-join ring buffer (the §1.7 backup),
 //   * the eunomia-sidecar/v1 assembly (the option-C contract surface) + its env projections.
-// (The delayed-button feedback STATE is a separate core primitive — button_feedback.h — driven by
-// ui/ (F2) around the async wifiTask job; embedding it in the synchronous trigger() would collapse
-// the working-window, so it is not a Coordinator member.)
-// THE TWO HARD RULES live in transport/ (F2); core/ is built to not violate them — it reads
-// presence ONLY via the L2 PresenceSource (never OSC) and issues exactly one serialized
-// fleet-trigger per START.
+// (The delayed-button feedback STATE is a separate core primitive — button_feedback.h — OWNED and
+// driven by ui/ (F3) around the slow inline action (there is no async trigger queue — the F2
+// no-queue finding); embedding it in the synchronous trigger() would collapse the working-window,
+// so it is not a Coordinator member.) THE TWO HARD RULES live in transport/ (F2); core/ is built to
+// not violate them — it reads presence ONLY via the L2 PresenceSource (never OSC) and issues
+// exactly one serialized fleet-trigger per START.
 #ifndef EUNOMIA_COORDINATOR_CORE_COORDINATOR_H
 #define EUNOMIA_COORDINATOR_CORE_COORDINATOR_H
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
@@ -36,7 +37,7 @@ namespace eunomia::core {
 // The phantom-press gate outcome (CONTRACT §3.6 / SPEC §1.8). A START commits only when BOTH
 // cameras are present at L2 (sent==2); 0 present = phantom (dropped); 1 present = one-sided (GRABAR
 // locked).
-enum class GateOutcome { Committed, PhantomDropped, OneSidedRefused };
+enum class GateOutcome : std::uint8_t { Committed, PhantomDropped, OneSidedRefused };
 
 // present_count == 0 → PhantomDropped; 0 < present_count < required → OneSidedRefused; else
 // Committed.
@@ -75,6 +76,13 @@ public:
   State state() const { return sm_.state(); }
   GateOutcome last_outcome() const { return last_outcome_; }
   std::size_t last_sent() const { return last_sent_; }
+  // Live L2 present count for the UI GO/NO-GO color (read-only; polled each render frame). Reads
+  // the L2 PresenceSource (never OSC) — the same source the gate uses. NOT detect_drop() (a
+  // mutating port op): this is the per-frame presence read ui/ needs and the only core accessor F3
+  // adds (FLAG-C).
+  std::size_t present_count() const {
+    return deps_.presence != nullptr ? deps_.presence->present().size() : 0;
+  }
   const TakeContext &take() const { return take_; }
   const OrdinalLog &ordinal_log() const { return ordinal_log_; }
   std::size_t pending_telemetry() const { return pending_.size(); }
