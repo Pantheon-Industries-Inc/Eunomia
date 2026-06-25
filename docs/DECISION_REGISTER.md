@@ -1232,3 +1232,165 @@ ordinal, the task-NAND path, the archive path, the transport/core boundary). The
 therefore mostly ADAPTER + RECONCILIATION work (build on this proven stack, emit/tolerate the contract
 shape, implement CoordinatorPort over the real OSC/telnet/file-trigger mechanism), NOT a rewrite —
 matching Mo's "build on Victor's proven firmware, rewrite only what the clean architecture requires."
+
+## Run F1 plan APPROVED 2026-06-24 — decisions locked (the coordinator on Victor's stack)
+
+The F1 plan (firmware/coordinator, plan-only) came back strong: the agent read Victor's delivered code
+in full (discardd ~2017 lines, bootup.sh, the join scripts, install_sd_rootkit.sh, autoexec.ash) and
+its load-bearing findings VERIFY against the actual source (I checked bootup.sh + install_sd_rootkit.sh
+myself — both confirmed, and finding 1 corrected MY earlier imprecise read, not the agent's). Decisions:
+
+- **SCOPE = SPLIT (LEAD-OQ resolved). F1 = `coordinator/core/` ONLY; F2 = `transport/` + `ui/`.** core/
+  is authored-not-adapted, provable off-target with `pio test -e native` (no rig), and unblocks the
+  rest. The decisive new reason: **Victor's fob C++ source is NOT in the bundle or the Eunomia repo** —
+  it lives in `x3-capture-kit/ble_bridge/esp32-fob-wifi/src/main.cpp` (fw 3.8.3). transport "adapts
+  Victor's source," so F2 is BLOCKED until that source is in reach. → **F2 PREREQUISITE: vendor/obtain
+  the esp32-fob-wifi source into the F2 worktree before starting it** (vendoring it under the repo is
+  the natural "build on Victor's, adopt where it works" move; decide at F2).
+- **SIDECAR RECONCILIATION = (C) HYBRID (the headline decision).** core/ assembles a complete
+  `eunomia-sidecar/v1` record from the coordinator-owned fields = the coordinator's CONTRACT SURFACE
+  (what F1 conformance-validates off-target + what feeds the god's-view/ordinal-join backup). discardd
+  keeps writing `pantheon-x3-sidecar/v2` on the card **UNTOUCHED** (his code is actively evolving;
+  changing his writer races his work). The `v2→v1` shape reconciliation lands at INGEST (a later run),
+  joined by `episode_id` (identical both arms). Converging discardd→v1 (option A) is a SEPARATE,
+  coordinated change owned WITH Victor — explicitly out of F1. **One-source-two-projections (confirmed
+  at annotation):** core/ holds ONE source of truth (the coordinator-owned field set) with TWO
+  projections — (a) the v1 record (backup/god's-view/conformance), (b) the env files
+  `current_assignment.env`/`current_stop.env` that discardd consumes — never double-maintained.
+- **THE BIGGER MECHANISM DIVERGENCE the code revealed (reframes write_sidecar):** CONTRACT §1.7 models
+  the FOB telnet-writing the sidecar twice. **Victor's stack does not work that way** — the fob pushes
+  `current_assignment.env` (identity/task, before START) + `current_stop.env` (outcome+timing, at STOP,
+  bound by `bimanual_episode_id`) and touches the trigger files; **discardd assembles + writes the
+  single `.pantheon.json` camera-side** on clip detection. So **`CoordinatorPort.write_sidecar` on this
+  stack = push the two env files**; the §1.7 two-write INTENT (identity known before the clip, outcome
+  bound at stop) is realized by the env mechanism, not a fob-written JSON. [CONTRACT §1.7 should be
+  annotated to match the real mechanism in a later docs pass — NOT YET FOLDED IN.]
+- **GROUND-TRUTH FINDINGS verified against the code (his code wins):** (1) **WiFi join on the delivered
+  rev4 camera = the NAND `S99zfobjoin` supervisor** — bootup.sh seeds `/pref/pantheon_fob.env` and lets
+  the supervisor own the join; it launches NEITHER x3_join_fob NOR x3_fob_link on rev4 (running
+  x3_fob_link too makes them FIGHT over wlan0, STA↔AP flap every ~23s, verified kit_55). Preference
+  order S99zfobjoin(rev4)→x3_fob_link(pre-rev4)→x3_join_fob(legacy). The handoff's "x3_join_fob is THE
+  ONE CORRECT WAY" is stale; **F1 only hosts the OPEN SoftAP `PANTHEON-kit_<n>` @192.168.42.1, DHCP
+  .2–.6; the join is camera-side + Victor's, untouched.** (2) **"Zero background OSC" = zero CONCURRENT
+  OSC** — discardd DOES emit idle video-mode reasserts, but `LOCK_REASSERT_S` was raised 5s→3600s
+  (install_sd_rootkit.sh:89-96) precisely because the 5s reassert collided with the fob's startCapture
+  on the single-threaded cherokee server (~3s desync, verified kit_56). F1's cross-actor obligation:
+  don't reintroduce OSC contention; presence is L2-only (`esp_netif_get_sta_list`), OSC only at
+  GRABAR/DETENER under `wifiLock`, fire-and-forget (`oscSendNoWait`).
+- **The 7 OQs resolved:** OQ-1 split (above); OQ-2 hybrid-C (above); **OQ-3** flip `pio run -e esp32` to
+  blocking at end of F1 — BUT write core/ to ESP32 constraints from the start (no C++ exceptions, no
+  RTTI, heap-aware; UUIDv4/clock/NVS stay behind the injected seams so core/ never calls a platform
+  API directly) and RUN the esp32 build of core/ during F1 as a portability smoke test — a non-clean
+  esp32 build is a REAL core/ portability finding to surface, not a reason to silently defer; **OQ-4**
+  `recording_suspect` (NET-NEW, coordinator-owned = the fob's STOP-time telnet-`ls`-grew check) carried
+  ONLY in the coordinator's v1 record for F1, no discardd change; **OQ-5** the SD-daemon provisioning
+  RECEIVE path = an out-of-band transport channel feeding an operational `hardware_unit.provisioning`
+  record (NO contract change; it's operational-model data, not the capture-trigger contract; Victor's
+  daemon, an F2 receive at most); **OQ-6** transport fires OSC `startCapture` DIRECTLY; writing
+  `start_at.trigger` (prefer the monotonic `U<uptime>` form) to feed discardd's precise cross-cam fire
+  is OPTIONAL and OFF until Victor's pre-arm/cross-cam-sync lands — F1 neither implements nor depends on
+  pre-arm; **OQ-7** `fob_session_id` minted in core/ (random per boot, the fob-swap disambiguator),
+  rides the ordinal-log + the operational `session` record (0d), NOT the sidecar; ingest keys on
+  `(kit_id, fob_session_id, ordinal)`.
+- **The fob-side ordinal-join ring buffer is NET-NEW vs discardd** (an independent backup medium for the
+  order-join: append-at-START, episode_seq+NTP wallclock+kit/fob id, ≥2-day self-bounding, durable-to-
+  flash BEFORE the counter advances per SPEC §1.8). discardd has only the camera-side NAND
+  `global_episode_seq`; the fob log is the independent second medium.
+
+## DECISION 2026-06-24 — operator_id ⊥ kit_id (Victor's fob collapses them; we restore the split)
+
+**Finding (Victor):** his fob bakes identity as `kit_id` (`-DFOB_KIT_ID`/`cmd kit=`) and the BLE-fob
+README states "operator identity is no longer tracked on the fob" — i.e. on the device the kit IS the
+identity, with operator collapsed into / equated with kit. Reasonable for "flash a fob per kit, ship
+it," but it conflates two axes the operational model deliberately separates.
+
+**Where the collapse actually lives (checked the code):** NOT in discardd. discardd keeps `KIT_ID`
+and `OPERATOR_ID` as fully separate variables (discardd:390/394), separate sidecar `identity` slots
+(1339/1341), and never derives operator from kit (`KIT_ID` falls back only to `RIG_ID`, never to
+operator, :448). **The camera-side writer is already correct.** The conflation is on the FOB: it
+dropped operator as a concept, so whatever it pushes into `current_assignment.env`/the NAND task env
+for operator is degenerate (kit value or empty). discardd faithfully records whatever the fob sends.
+
+**Decision — restore the two independent identity axes (this is the person ⊥ kit decoupling 0d is
+built on):**
+- The OPERATOR signs in with their own `operator_id` at the fob (SPEC §1.8 sign-in). One operator can
+  use ANY kit; the system RECORDS the (operator, kit) pairing for that session rather than baking it.
+- `kit_id` stays the fob's PROVISIONED identity (Victor's "the fob is assigned to a kit" is kept). We
+  just stop treating the kit as the operator.
+- The operational `session` record (person_id + kit_id + window, 0d) is the system-of-record for
+  "operator X used kit Y this shift." Episodes resolve **operator-from-session, kit-from-fob,
+  side-from-NAND** (identity precedence §3.3). Why it matters: operator drives the Mexico
+  feedback/scorecards; kit drives hardware-fault tracing + calibration; collapsing them makes a kit
+  fault and an operator pattern indistinguishable in the data.
+
+**Where the fix lands = F1/F2 (the fob coordinator), with ZERO contract change and ZERO discardd
+change.** Operator identity becomes part of what `core/` tracks (operator sign-in state) and projects
+into `current_assignment.env` as a field DISTINCT from `kit_id`. Once the fob pushes a real
+`operator_id ≠ kit_id`, discardd's sidecar is correct automatically (the slots already exist). Folded
+into the F1 prompt's `core/` scope. The contract (`identity.operator_id` ⊥ `identity.kit_id`,
+sidecar) and 0d (`person`/`kit`/`session` as separate entities) already model this correctly — no
+schema edit.
+
+## F2 prep 2026-06-24 — pulled Victor's WiFi-OSC fob source; README + header both stale
+
+Pulled `esp32-fob-wifi/` from `x3-capture-kit` (authenticated Chrome). Findings (the prerequisite for
+F2 = the fob source) — and TWO stale-doc gotchas the ground-truth rule caught:
+
+**CONFIRMED: `ble_bridge/esp32-fob-wifi/src/main.cpp` IS the WiFi-OSC fob.** Single file, **3240 lines
+/ 160 KB**, fw **3.8.3-fast-guard**, commit **a38f5a9** ("x3-wifi-fob: sync fob fw 3.8.3-fast-guard;
+discardd validated end-to-end") — matches Victor's delivered binary exactly. The file header is
+explicit: "Pantheon X3 WiFi-OSC Fob — triggers two Insta360 X3 cameras over WiFi and writes a
+per-episode metadata sidecar onto each camera's SD." The prerequisite is satisfiable from the repo.
+- **GOTCHA 1 — the folder README is STALE:** it describes a BLE-trigger + WiFi-*upload* fob (GATT, the
+  trigger log POSTed over WiFi) and its build steps say `cd ble_bridge/esp32-fob` (the OLD folder). It
+  was copied from the BLE fob and never updated. IGNORE it; the code is WiFi-OSC.
+- **GOTCHA 2 — even main.cpp's own top comment is partly STALE:** it describes the original lineage
+  ("one camera is the WiFi AP hub and the fob STA-joins it," the coordinator.py port), but the actual
+  code has the **FOB hosting the AP** (`apEnsureUp`/`apSsid`/`apChannel`, matching the bundle's
+  `PANTHEON-kit_<n>` @192.168.42.1 with cameras joining IT). The prose topology is INVERTED from what
+  the code does. → The ground-truth rule bites TWICE in one folder (README + file header both trail
+  the code); F2's agent must read the CODE, not the comments.
+
+**Structure (the symbol map — F2's adaptation targets):** `FobConfig` (NVS identity/assignment),
+`Cam` class + `StartGate` (the SD-pass gate: a take is refused unless every cam reports
+cardState=pass), `makeFobSession` (**per-boot fob_session_id via `esp_random()` — matches our OQ-7
+exactly**), the locks `wifiLock`/`camLock`/`fsLock`, `wifiJoin`/`apEnsureUp`/`apSsid`/`apChannel`/
+`scanBestWifiTarget` (AP hosting + uplink-borrow), `macAllowed` (the RPA-proof MAC allowlist),
+`appendEpisodeLine`/`logStart`/`logStop`/`logDelete` (the LittleFS episode log), `apiRequest`/
+`wifiUploadBurst`/`refreshLiveTelem` (the idle uplink upload + telemetry), the UI screens
+`SCREEN_PROVISION/MESA/MAIN/CONFIRM/CONFIRM_ID`, `CamTelem`.
+
+**platformio.ini (F2's build basis):** `framework=arduino`, `platform=espressif32@^6.5.0`,
+board `esp32dev`, **default env `cyd`**, partitions `min_spiffs.csv` (dual app slots → OTA-capable),
+deps `bodmer/TFT_eSPI@^2.5.43` + `bblanchon/ArduinoJson@^7.0.4`, filesystem `littlefs`. The CYD TFT
+config (ILI9341_2 driver + the documented red/blue-swap + inversion color-fix flags + pins). Telemetry
+gates `PANTHEON_TELEM_RELAY`/`PANTHEON_TELEM_BLE` OFF by default. **"WiFi runs on the core-0 worker (it
+no longer blocks the touch loop)"** — confirms the dedicated-core wifiTask (UI on one core, WiFi on
+core 0) that makes the instant touch-ack possible. **NO BLE stack** — the single 2.4 GHz radio is STA
+(camera hub AP + brief uplink borrow).
+
+**FRAMEWORK BOUNDARY (key for F2):** Victor's fob is Arduino-framework (TFT_eSPI + ArduinoJson +
+LittleFS + HTTPClient). Our `core/` is pure C++17, framework-free (proven to cross-compile under
+env:esp32, `-fno-exceptions -fno-rtti`). So **F2's `transport/`+`ui/` are Arduino-framework code
+(adapted from Victor); `core/` stays pure; `seams.h` is the boundary** — do NOT pull Arduino/TFT/JSON
+into `core/`. The seams (`CaptureFleet`/`CaptureDevicePort`, `PresenceSource`, `PersistentStore`,
+`Clock`/`Rng`, the uplink) are what transport implements with the real ESP32/WiFi/OSC/telnet/NVS.
+
+**REFINEMENT to the earlier operator⊥kit note (IMPORTANT — I conflated two fobs):** my earlier entry
+said "Victor's fob collapses kit==operator." That was the OLD **BLE** fob's README ("operator identity
+is no longer tracked on the fob"). The **WiFi-OSC fob keeps `kit_id` and `operator_id` as SEPARATE NVS
+fields** (config grammar `kit=`, `op=`, `station=`, `prompt=`) and has a REGISTRO flow + a
+`SCREEN_CONFIRM_ID` "Are you <name>?" confirm (the typed kit# resolves a provisioned NVS identity,
+caught before logging under the wrong person). So the WiFi-OSC fob is ALREADY closer to our
+operator⊥kit model than the BLE README implied — it does carry operator distinctly. Our decision
+stands unchanged (operator-from-session, kit-from-fob, the session binds them); F2 reconciles the exact
+REGISTRO/confirm identity flow with our sign-in model, but there is no kit==operator collapse to undo
+in the WiFi-OSC fob.
+
+**VENDORING (F2's first action):** the faithful copy is a git operation, NOT a browser scrape (the 160
+KB blob is virtualized; `get_page_text` only returns the first ~118 lines). F2 (Conductor, gh-authed
+as Mzcassim) clones `x3-capture-kit` and copies `esp32-fob-wifi/{src/main.cpp, platformio.ini}` (+ reads
+the companion docs FOB_AP_HARDENING.md, FW_2.2.0_CAPTURE_FIXES.md, RTC_TIMEKEEPING.md, and the repo-root
+X3_LIVE_TRIGGER_REPLICATION.md/EXPERIMENTATION.md) into `firmware/coordinator/transport/vendor/
+esp32-fob-wifi/` with a provenance note (repo, path, commit a38f5a9, fw 3.8.3-fast-guard, md5). Then
+read main.cpp IN FULL under the ground-truth rule.
