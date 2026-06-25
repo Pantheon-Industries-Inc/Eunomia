@@ -29,7 +29,7 @@ jobs:
 
   # C++ / conformance. ALL BLOCKING since Run F2 landed transport/: clang-format, the off-target
   # native build/test, BOTH on-target builds (esp32 headless + cyd deployment board), clang-tidy
-  # (scoped to transport/proto/), and the camera-image checksum.
+  # (scoped to core/ + transport/proto/ since Run F3 — FLAG-F), and the camera-image checksum.
   cpp:
     runs-on: ubuntu-latest
     steps:
@@ -59,7 +59,7 @@ jobs:
         run: pio run -e esp32 -d firmware/coordinator
       - name: cyd deployment-board build (blocking)
         run: pio run -e cyd -d firmware/coordinator
-      - name: clang-tidy (blocking, scoped transport/proto/)
+      - name: clang-tidy (blocking, scoped core/ + transport/proto/)
         # CI=true is set by GitHub Actions; gates-cpp-tidy runs clang-tidy when present and HARD-FAILS
         # (exit 1) if it is absent under CI — never a silent skip.
         run: make gates-cpp-tidy

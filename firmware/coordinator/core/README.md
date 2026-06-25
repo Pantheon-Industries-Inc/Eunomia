@@ -21,7 +21,7 @@ heap-aware) — enforced by the `env:esp32` cross-build (`-fno-exceptions -fno-r
 | `episode.{h,cpp}` | `mint_uuid_v4` (the episode_id pairing key, §7), `make_display_id` (the derived handle, pure calendar math), `DurableOrdinal` (the fob `episode_ordinal`, **persisted to flash BEFORE the counter advances** — never lose/reuse a number). |
 | `ordinal_log.{h,cpp}` | The fob-side ordinal-join backup (CONTRACT §1.7): an append-at-START, self-bounding ring buffer (the ~2-day window). Net-new vs discardd. |
 | `sidecar_assembly.{h,cpp}` | Assemble `eunomia-sidecar/v1` from the coordinator-owned fields (the contract surface) + the `current_assignment.env`/`current_stop.env` projections discardd consumes (OQ-2 option C). |
-| `button_feedback.{h,cpp}` | `DelayedButton` — the instant-ack/working/lockout STATE for ALL delayed buttons (logic, not pixels; SPEC §1.8). `ui/` (F2) renders it. |
+| `button_feedback.{h,cpp}` | `DelayedButton` — the instant-ack/working/lockout STATE for ALL delayed buttons (logic, not pixels; SPEC §1.8). `ui/` (F3) owns + drives it; renders `working()`. |
 | `coordinator.{h,cpp}` | The `CoordinatorPort` implementation: ties the above to the seams + the `CaptureDevicePort` fleet. The phantom-press gate (`sent==2`) lives here. |
 
 ## The two guarantees (proven off-target — see `test/test_core/`)
