@@ -1,8 +1,10 @@
 # Eunomia gate entrypoints. Local == CI == Hermes.
 #
 # The five Python gates below are the VERBATIM Hermes commands in Hermes order.
-# `make gates` runs every BLOCKING gate. Non-blocking in Run 0a (OQ-13): the esp32
-# target build and clang-tidy — wired in `gates-cpp-nonblocking` + CI (continue-on-error).
+# `make gates` runs every BLOCKING gate. Since Run F1 landed firmware/coordinator/core/, the esp32
+# target build is now BLOCKING (OQ-13/F1-OQ-3: core/ is pure C++17 and must cross-compile for the
+# ESP32 it will run on). Only clang-tidy stays non-blocking (flips on with transport/ui in F2) —
+# wired in `gates-cpp-nonblocking` + CI (continue-on-error).
 
 PIO ?= pio
 # Hand-written firmware C++ only — prune .pio/ (downloaded libs) and contracts/_generated (codegen).
@@ -13,8 +15,8 @@ CPP_FILES := $(shell find firmware -path '*/.pio' -prune -o \( -name '*.cpp' -o 
 help:
 	@echo "make gates                 - all BLOCKING gates (python + cpp + drift)"
 	@echo "make gates-python          - the five Hermes python gates (verbatim, in order)"
-	@echo "make gates-cpp             - clang-format + native build/test + checksum stub (blocking)"
-	@echo "make gates-cpp-nonblocking - esp32 target build + clang-tidy (NON-blocking in 0a)"
+	@echo "make gates-cpp             - clang-format + native build/test + esp32 build + checksum (blocking)"
+	@echo "make gates-cpp-nonblocking - clang-tidy (NON-blocking until transport/ui land in F2)"
 	@echo "make codegen               - regenerate contracts/_generated from the neutral source"
 	@echo "make drift                 - codegen + assert contracts/_generated is unchanged"
 
@@ -34,12 +36,12 @@ gates-python:
 gates-cpp:
 	clang-format --dry-run -Werror --style=file $(CPP_FILES)
 	$(PIO) test -e native -d firmware/coordinator
+	$(PIO) run -e esp32 -d firmware/coordinator
 	$(MAKE) camera-image-checksum
 
-# ---- C++: non-blocking in 0a (present, but does not gate); CI runs with continue-on-error ----
+# ---- C++: non-blocking (present, but does not gate); CI runs with continue-on-error ----
 gates-cpp-nonblocking:
-	-$(PIO) run -e esp32 -d firmware/coordinator
-	@echo "clang-tidy: configured in .clang-tidy, non-blocking in 0a (flips on when coordinator/core/ lands)"
+	@echo "clang-tidy: configured in .clang-tidy, non-blocking until transport/ui land (Run F2)"
 
 # ---- codegen + drift ----
 # Hermetic: generate under the pinned codegen deps (--no-project, so it runs before uv could build

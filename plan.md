@@ -1,348 +1,488 @@
-# Run 0d — `contracts/operational/`: the operational model
+# Run F1 — `firmware/coordinator/`: the coordinator on Victor's proven stack (PLAN ONLY)
 
-> **Status: APPROVED — implementing.** Mo annotated 2026-06-24: **OQ-A → (2)** (hard enum only for
-> DOMAIN-closed axes; open-string + WARN-check for today-closed/growth-prone axes), **OQ-B → APPROVED**
-> (calibration = queryable scalars + opaque blob; footage `locations` = scalar array of strings; the
-> matrix / per-location-object cases remain named STOP-and-flag lines), **OQ-C → APPROVED** (one
-> polymorphic `operational-event` with an `event_type` discriminator + opaque payload; placed in
-> `contracts/events/`), **OQ-D → (1)** (the `session` IS the kit↔person binding + a roster
-> `operational-event`; no 10th entity). The pre-approved set (OQ-3/4/5/6/9/10/11/12) is encoded as
-> decided. §9 below records each resolution.
+> **Status: PLAN — not implemented.** This is the first *consumer* of the contract: it implements the
+> generated `CoordinatorPort` (Run 0c) against Victor's **real, proven, actively-evolving** fob/camera
+> stack delivered as `pantheon-x3-firmware_2026-06-24.zip` (rootkit v0.7.1 / KIT_VERSION 0.10.0, fob
+> `3.8.3-fast-guard`). It is **adapter + reconciliation work on top of that stack, NOT a rewrite.**
 >
-> Same discipline as 0a/0b/0c: implement → run gates → report + STOP for go-ahead (do not merge or
-> force-push). 0d fills the **one remaining contract stub** (`contracts/operational/`); after it,
-> `contracts/` is fully poured.
->
-> Authority read for this plan: `docs/CONTRACT.md` **§3** (the operational model — wins on any
-> disagreement) + §4/§7; `docs/DECISION_REGISTER.md` (B-8, B-9, A-2, C-9/C-10/C-11/C-12, R-2, the
-> 2026-06-24 spot-check block, the post-0b/0c run-status block with the carried OQs); `docs/SPEC.md`
-> §3.2–§3.6; and the as-built machinery I REUSE unchanged — `contracts/codegen/generate.py`
-> (358-line record DSL, **not grown**), `templates/semantics.py.tmpl` (the hand-written overlay),
-> `contracts/conformance/test_conformance.py` (the hybrid validator + parametrized buckets), the 0b
-> record schemas as the field-DSL pattern.
+> **Ground-truth rule honored:** every claim below is checked against Victor's *delivered code*
+> (`discardd`, `bootup.sh`, `x3_join_fob.sh`, `x3_fob_link.sh`, `install_sd_rootkit.sh`, `autoexec.ash`),
+> the generated ports/sidecar headers, and the authority docs (CONTRACT §1.6/§1.7/§2/§3.3/§3.5/§3.6,
+> SPEC §1.8, DECISION_REGISTER). Where his code disagrees with a handoff or with our assumptions, **his
+> code wins and the disagreement is flagged** (§3). Two decisions are raised prominently for annotation
+> (§2): the **sidecar reconciliation** and the **one-run-vs-split LEAD OQ**.
 
 ---
 
 ## 1. Summary
 
-**What 0d produces:**
+**What F1 produces (recommended scope = `core/` only — see the LEAD OQ §2.2):** the pure,
+hardware-free, off-target-testable heart of the coordinator — a real `CoordinatorPort` implementation
+with a provable correctness guarantee, authored (not adapted):
 
-- **The 9 operational entities (CONTRACT §3.1–§3.2)** as record-shaped
-  `contracts/operational/eunomia-<entity>.schema.yaml`, reusing the **0b field-DSL + the Option-C
-  hybrid validator unchanged**: `person`, `hardware_unit`, `kit`, `calibration`, `task`, `session`,
-  `capture_stack`, `footage_reference`, `episode` (the join point). Targets **`[jsonschema, python]`**
-  only — no C++ (OQ-10).
-- **The event/lifecycle representation (OQ-3)** — the entity records ARE the current-state
-  (materialized-view) records; the append-only log is (a) the existing **`eunomia-sync-delta`**
-  envelope as the generic upsert/delete transport (with the OQ-9 tightening), plus (b) ONE
-  first-class **`eunomia-operational-event`** record where a lifecycle carries fields beyond the
-  entity snapshot. **The fold/materializer is NOT implemented** — 0d defines the types + documents the
-  derivation.
-- **As-of resolution (OQ-6)** — encoded *temporally* as validity-range fields (`effective_from` /
-  nullable `effective_to`) on time-bound bindings + `as_of` on events + `recorded_at` on episode. The
-  resolution **rule** is documented; the **resolver runs at ingest = a later run**.
-- **The §3 rules as types + documentation** — identity precedence (§3.3), crosswalk + serial
-  retargeting (§3.4), task precedence (§3.5), the dual-signal join (§3.6) are **join-time,
-  multi-entity** logic → encoded as **typed fields + prose** in entity READMEs/schema comments. The
-  `_semantics` overlay carries **only the two single-record cross-field rules** (OQ-11).
-- **The one `events/` tightening (OQ-9)** — the sync-delta `entity` value-set becomes a **WARN-level
-  `_semantics` check**, NOT a hard enum (a hard enum is a §5-violating narrowing). `entity` stays an
-  open string structurally = additive-safe.
-- **Conformance** — `valid/`, `invalid/`, `warn/` (and `semantic_invalid/` for `episode` +
-  `footage_reference`) fixtures per entity through the same hybrid validator; `ENTITIES` dict + the
-  validate-parity map + the imports grow; the drift gate stays green.
+- **`coordinator/core/` — the trigger state machine + episode/ordinal logic + sidecar assembly + the
+  button-feedback STATE machine.** Implements the generated `CoordinatorPort` against *injected seams*
+  (a `CaptureDevicePort` fleet, an L2 `PresenceSource`, and `Clock`/`Rng`/`PersistentStore`) so the
+  logic is exercised with `pio test -e native` and **no rig** (the one-machine rule). Carries the two
+  non-negotiable guarantees: **START-valid-only-from-idle** (spam-safety) and the **both-cams-acked
+  (`sent==2`) phantom-press gate**.
+- **The sidecar-assembly artifact:** `core/` assembles an `eunomia-sidecar/v1` record from the fields
+  the coordinator owns and proves it **validates against the generated `eunomia_sidecar` C++ target +
+  the golden fixtures** off-target — the F1 analog of how the contract runs proved things in CI.
+- **The reconciliation decision** (§2.1) made concrete: what the coordinator emits, what discardd
+  emits, where the translation lands.
 
-**What 0d defers (restated in §10):** no module logic (no firmware/ingest/edge/console code); the
-join/precedence/as-of **implementation**; the spot-check tuning values (N%, N-day, watermark); the
-firmware-vs-ingest resolution of the sidecar-shape divergence; how Hermes consumes the contract.
+**What F1 defers** (the recommended split → **F2**): `coordinator/transport/` (WiFi SoftAP hosting,
+the `wifiLock`-serialized fire-and-forget OSC client, the telnet client, the file-trigger writes — i.e.
+THE TWO HARD RULES on hardware, adapted from Victor's `esp32-fob-wifi` source) and `coordinator/ui/`
+(the CYD touchscreen). These are hardware-coupled adapters of Victor's proven binary, best done **with
+the rig and his actual source in hand** — and his fob source is **not in this bundle or repo** (§3,
+finding 6). This plan still specifies them (§5.2, §5.3, §7) so the boundary and the two hard rules are
+fully drawn now.
 
-**Why fast:** this is **record-shaped reuse of settled 0b machinery** + the held decisions. The only
-*new* code is hand-written `_semantics` logic (2 hard rules + 1 warn rule) — no generator growth, no
-new emitter (0c's `generate_interfaces.py` is done and out of scope).
+**The explicit boundary to Victor's stack** (full table in §5.4): F1 AUTHORS the state machine + the
+ordinal/episode logic + the sidecar assembly + the button-feedback state. F1 (in F2) ADOPTS Victor's
+`esp32-fob-wifi` transport patterns (SoftAP, `oscSendNoWait`, `wifiLock`, `esp_netif_get_sta_list`).
+F1 leaves UNTOUCHED — and depends on — discardd, the WiFi join (`S99zfobjoin`/`x3_fob_link`/
+`x3_join_fob`), the camera-side pre-arm/cross-cam-sync work, and the camera firmware. **Nothing in F1
+reimplements discardd, the WiFi join, or the pre-arm.**
 
 ---
 
-## 2. The `contracts/` tree after 0d (annotated: NEW / EDIT / UNCHANGED)
+## 2. The two decisions I most want to make at annotation
+
+### 2.1 THE SIDECAR RECONCILIATION (the headline decision)
+
+Victor's `discardd` writes `pantheon-x3-sidecar/v2`; the contract is `eunomia-sidecar/v1`. **Both are
+nested.** The divergence is **bidirectional** (not a clean subset — confirmed from the
+`write_episode_sidecar` `cat >` block, discardd:1312–1360):
+
+| Axis | discardd `v2` (delivered) | contract `v1` |
+|---|---|---|
+| schema string | `pantheon-x3-sidecar/v2` | `eunomia-sidecar/v1` |
+| sidecar filename | `VID_<ts>_<seq>.pantheon.json` | `VID_<ts>_<seq>.eunomia.json` (CONTRACT §2.1) |
+| `seq` | **quoted STRING** (3-digit filename counter) | **int** |
+| namespacing | **one big `identity`** block lumps provenance (`fob_id`/`fob_build`/`camera_firmware`) + outcome (`stop_reason`) + assignment (`task_*`/`prompt`) | split into `identity` / `provenance` / `outcome` |
+| `files` | `{back,front,lrv}` each `{raw,canonical}` | `files.back` (one HARD string) |
+| only in `v2` | `ts`, `timestamp`, `layout`, `qc_status`, `qc_reason`, `back_size`/`front_size`, nested `record_settings` object | — |
+| only in `v1` | — | `episode_ordinal`, `display_id`, `modality`, **`recording_suspect`** (NET-NEW), `camera_clock`, `assignment_source` |
+| `record_settings` | nested JSON object | string |
+| two-axis versioning | `kit_version` ⊥ `record_format_version` ✓ | same ✓ |
+
+**A second, larger divergence the code revealed — WHO writes the sidecar, and WHEN** (this reframes the
+whole decision; see §3 finding 2): CONTRACT §1.7 models the **fob** telnet-writing the sidecar twice
+(identity-at-START, outcome-at-STOP). **Victor's stack does not work that way.** The fob pushes
+`current_assignment.env` (identity/task, before START) and `current_stop.env` (outcome+timing, at STOP,
+bound by `bimanual_episode_id`) over telnet and touches the trigger files; **discardd** assembles and
+writes the single `.pantheon.json` *camera-side* when it detects the finalized clip
+(discardd:1136–1360). There is no fob-written JSON. So `CoordinatorPort.write_sidecar` on this stack
+**= push the two env files**, and discardd materializes — the §1.7 two-write *intent* (identity known
+before the clip + outcome bound at stop) is realized by the env mechanism.
+
+**Options:**
+
+- **(A) Converge discardd's writer to `eunomia-sidecar/v1`.** Cleanest end-state (one shape, system of
+  record). **Cost:** changes Victor's actively-evolving code (he is mid-stream on pre-arm/cross-cam
+  sync); a writer change races his work, and he's the owner. Cross-language conformance would then bind
+  his shell writer. **Not F1's to do unilaterally.**
+- **(B) Ingest tolerates BOTH shapes; discardd unchanged; coordinator emits nothing new.** Lowest
+  disruption to Victor. **But** it leaves F1 with no defined sidecar-assembly artifact to prove
+  off-target (the run explicitly wants `core/`'s assembly to validate), and pushes 100% of the
+  shape-bridging to a later ingest run with no coordinator-side contract surface.
+- **(C) HYBRID — the boundary the code already draws (RECOMMENDED).**
+  1. `core/` assembles a complete **`eunomia-sidecar/v1`** record from the **coordinator-owned
+     fields** (the fob-sourced set, §5.1) + the camera-owned fields it receives — this is the
+     coordinator's **contract surface**: it is what F1 conformance-validates off-target, and what the
+     coordinator logs to its god's-view / ordinal-join backup.
+  2. The **on-card per-clip JSON stays discardd's job** (do **not** touch his writer in F1).
+     `transport`'s `write_sidecar` (F2) realizes it as **pushing `current_assignment.env` (START) +
+     `current_stop.env` (STOP)** — exactly the env mechanism discardd already consumes — so discardd
+     keeps emitting `v2` unchanged.
+  3. The **`v2`→`v1` shape reconciliation lands at INGEST (a later run)**: ingest translates discardd's
+     lumped `identity` into the clean namespaces and casts `seq`. The join key is `episode_id`
+     (identical both arms), so the coordinator's `v1` record and discardd's `v2` card-file reconcile
+     cleanly downstream.
+  4. **Converging discardd to `v1` (option A) becomes a *separate, coordinated* change owned with
+     Victor** — explicitly out of F1.
+
+  **Why C:** it gives F1 a real, testable `v1` assembly (the correctness proof the run wants) **without
+  changing Victor's moving code**, honors the env-push mechanism his stack actually uses, and keeps the
+  contract as the coordinator's emitted surface. It matches the DECISION_REGISTER framing
+  ("mostly ADAPTER + RECONCILIATION work… emit/tolerate the contract shape," 2026-06-24 bundle block).
+
+  **Contract-change check (C requires none):** `eunomia-sidecar/v1` already has every field the
+  coordinator owns. **One field to confirm at annotation:** `recording_suspect` is NET-NEW and
+  **coordinator-owned** (the fob's STOP-time "did the clip actually grow?" check via telnet `ls` +
+  growth) — discardd does not write it. C carries it in the coordinator's `v1` record; whether it also
+  reaches the card today depends on (A) later. No schema edit needed.
+
+> **I am not silently picking.** Recommendation = **(C)**. This is the call I most want to confirm at
+> annotation, including the "leave discardd's writer alone in F1" boundary.
+
+### 2.2 LEAD OQ — one run or split? (RECOMMENDED: SPLIT — F1 = `core/`, F2 = `transport` + `ui`)
+
+`core/` (pure state machine + ordinal/episode logic + sidecar assembly) is a fundamentally different
+*shape of work* from `transport/` (hardware-coupled OSC/telnet/SoftAP adapted from Victor's source) and
+`ui/` (the touchscreen). **Recommend splitting**, F1 = `core/`:
+
+| Reason | core/ (F1) | transport + ui (F2) |
+|---|---|---|
+| **Authored vs adapted** | Authored from scratch (our correctness logic) | Adapted from Victor's proven 3.8.3 binary |
+| **Provable off-target** | ✅ `pio test -e native`, no rig — spam-safety + phantom-press + sidecar conformance are *provable in CI* (like the contract runs) | ❌ needs the rig + the cameras to validate the OSC/telnet/SoftAP behavior |
+| **Source available now** | ✅ needs only `contracts/` | ❌ **Victor's fob source is not in this bundle/repo** (§3 finding 6) — only compiled binaries |
+| **Unblocks** | Unblocks transport+ui (they implement against core's seams) | Depends on core |
+| **Reviewability** | A clean, self-contained, host-tested PR | Hardware-coupled; touches Victor's evolving code; best reviewed with rig evidence |
+
+The one-PR alternative bundles an unprovable, source-blocked, rig-dependent half with a clean provable
+half — larger and harder to review, and gated on obtaining the fob source. **Mo decides at annotation.**
+This plan documents all three modules either way; if Mo prefers one run, §5.2/§5.3/§7 are the transport/ui
+spec to fold in.
+
+---
+
+## 3. What I read in Victor's bundle — and where his code contradicts a handoff or our assumptions
+
+**discardd (the authoritative readable source, ~2017 lines POSIX shell) — actual behavior:** boots →
+asserts `captureMode=video` + the locked `RES_3008_1504P100` + power/thermal levers → enters a 2 s
+(0.1 s when a scheduled trigger is pending) loop that: `scan_episodes` (detect new clips) →
+`log_episode_group` → `write_episode_sidecar` (the `.pantheon.json` writer); handles the touch-triggers
+`/tmp/{discard,archive,front_cleanup,health,start_at,stop_at,sync_arm,latency_probe}.trigger`; fires
+OSC start/stop; runs telemetry/lock-reassert/low-space/health. It **NEVER touches wifi/AP/wpa_supplicant**
+(discardd:11–15, the hard boundary after the 2026-06-10 LEFT-UI-hang incident) — confirming the
+transport/core split from the camera side.
+
+**The fob↔discardd control mechanism, as delivered (= our transport contract):** file-trigger + env +
+OSC + telnet. The fob touches the trigger files; `start_at`/`stop_at` carry line1=epoch (fractional ok)
+**or `U<uptime>`**, line2=`episode_id` (discardd:1565–1621). The fob writes `current_assignment.env`
+(identity/task) before START and `current_stop.env` (`STOP_REASON`, `START_SKEW_MS`, `CAM_STARTED_UNIX`,
+`CAM_STOPPED_UNIX`, `ARCHIVE`, keyed by `EP_BIMANUAL_EPISODE_ID`) at STOP (discardd:1282–1293). discardd
+self-reads `camera_firmware` from `/osc/info`, fills NAND identity/ordinal, and writes the sidecar.
+
+**Findings where the *delivered code* contradicts a handoff / our framing (his code wins):**
+
+1. **WiFi-join — THREE approaches in his own tree, and the delivered rev4 default is NEITHER the one the
+   run prompt quoted.** The prompt and an older handoff frame `x3_join_fob.sh`'s `wifi_stop.sh → load.sh
+   sta → sta.sh` as "THE ONE CORRECT WAY." But the **delivered `bootup.sh`** (lines 229–268) treats
+   `x3_join_fob.sh` as the **LEGACY strand-prone fallback**, prefers `x3_fob_link.sh` (whose own header
+   says the raw shell path **fails with `SIOCSIFFLAGS` on bcmdhd** and uses the vendor `fobjoin` cmd-112
+   path as primary), and **on rev4 cameras (the delivered firmware) launches neither** — it seeds NAND
+   `/pref/pantheon_fob.env` and lets the **`S99zfobjoin` supervisor** own the join, because running
+   `x3_fob_link` too makes them **fight over `wlan0`** (verified 2026-06-24, kit_55). **Net:** the live
+   join path for the delivered rev4 camera is the **NAND `S99zfobjoin` supervisor** — camera-side,
+   Victor's, **F1 does not touch it.** F1's only obligation: the fob must host the OPEN SoftAP
+   `PANTHEON-kit_<n>` @ `192.168.42.1`, DHCP `.2–.6`, for the camera to join.
+
+2. **The on-card sidecar is written by discardd (camera-side), NOT by the fob — contradicting CONTRACT
+   §1.7's "the fob telnet-writes the identity sidecar at START + the outcome sidecar at STOP."** Reality
+   (§2.1): the fob pushes `current_assignment.env` + `current_stop.env` and touches triggers; discardd
+   assembles+writes ONE `.pantheon.json` on clip-detection. **This is the single biggest mechanism
+   divergence and it redefines `CoordinatorPort.write_sidecar` on this stack** (= push the env files).
+   The §1.7 *intent* is preserved; the *mechanism* is the env push, not a fob-written JSON.
+
+3. **discardd DOES emit OSC** (the `captureMode=video` reassert, the idle `record_resolution` re-assert,
+   and the start/stop fires), in mild tension with "zero background OSC." It is serialized on discardd's
+   single loop and **idle-gated** (`recording_in_progress()` blocks mid-take). Crucially, `config.env`
+   **raised `LOCK_REASSERT_S` from 5 s → 3600 s** precisely because the 5 s idle reassert was *colliding
+   with the fob's `startCapture` on the single-threaded cherokee server* (install_sd_rootkit.sh:88–96;
+   verified 2026-06-24, kit_56). So "zero background OSC" means **zero *concurrent* OSC**; the fob's
+   rule (L2-only presence; OSC only at GRABAR/DETENER under `wifiLock`) is what F1 owns. **Cross-actor
+   note:** the fob's `startCapture` and discardd's reassert must not collide — `LOCK_REASSERT_S=3600` is
+   the current mitigation; F1 must not reintroduce contention.
+
+4. **Two start paths exist.** (a) The fob fires OSC `startCapture` directly (immediate — HARD RULE: only
+   at GRABAR). (b) discardd's `run_scheduled_action_if_due` busy-waits to a precise target from
+   `start_at.trigger` and fires (sub-second cross-cam sync; pairs with PREARM). **Path (b) +
+   PREARM is Victor's in-flight camera-side work — F1 does NOT own it.** F1's transport does the direct
+   fire; it MAY *also* write `start_at.trigger` (preferring the monotonic `U<uptime>` form, immune to the
+   poison clock) to feed his precise-fire, but F1 neither implements nor depends on the pre-arm.
+
+5. **`seq` is a quoted string; the field sets differ both ways** (the §2.1 table). The contract is **not**
+   a clean re-namespacing of `v2` — each side has fields the other lacks. This is why the reconciliation
+   is real and lands at ingest (option C).
+
+6. **The fob C++ source is NOT in this bundle (compiled binaries only: `fob_MERGED_flash_at_0x0.bin` +
+   parts) and NOT in the Eunomia repo.** It lives in `Pantheon-Industries-Inc/x3-capture-kit` at
+   `ble_bridge/esp32-fob-wifi/src/main.cpp` (fw 3.8.3) — confirmed by `grep`/`find` over the repo (no
+   `ble_bridge/`, no `esp32-fob*`). **Implication:** `transport`'s "adopt/adapt Victor's source" is
+   blocked until that source is obtained; from this bundle alone you have only observable binary behavior
+   + the docs. **A decisive additional reason to split** and do `core/` (which needs only `contracts/`)
+   first (OQ-1).
+
+**Things his code CONFIRMS (we build on, do not rediscover):** two-axis versioning
+(`kit_version` ⊥ `record_format_version`, discardd:17–22); the front-lens/IMU keep policy
+(`DELETE_FRONT_AFTER_KEEP=0`, front `_00_.insv` carries the IMU); `CAPTURE_LAYOUT` for 3K/100 = `single`
+(one `_00_.insv`, 2944×1472, the keeper); archive-on-DESCARTAR = non-destructive (`archive=1` +
+`stop_reason=operator_discard`); NAND `/pref/` identity (`pantheon_camera.env`),
+task (`pantheon_current_task.env`, task-only), and ordinal (`pantheon_episode_seq`, swap-proof);
+task precedence NAND→SD→none (`load_envs`, discardd:422–445); camera clock is poison (fob NTP / NAND
+ordinal authoritative).
+
+**The SD-flash provisioning daemon (Victor, in-flight, camera-image module):** while a card is in the
+camera it collects the unit's connection info (MAC/AP/WiFi/IP, body+`.insv` serials = the
+`hardware_unit.provisioning` group, 0d) and **pushes it to the fob over telnet**. **It is a
+coordinator-RECEIVE path, Victor's daemon — F1 does not implement it.** How the coordinator receives it
+is an OQ (§10, OQ-5): not in today's 6-op `CoordinatorPort`, so either an out-of-band transport channel
+feeding an operational provisioning record (no contract change — recommended) or a new port op (a
+contract-change PR).
+
+---
+
+## 4. The `firmware/coordinator/` tree after F1 (recommended split: `core/` authored; transport/ui = F2)
 
 ```
-contracts/
-├── operational/                                  [was a 0b/0c stub README]
-│   ├── README.md                                 REWRITE (stub → real)
-│   ├── eunomia-person.schema.yaml                NEW   (§3.1 person; B-8)
-│   ├── eunomia-hardware-unit.schema.yaml         NEW   (§3.1 hardware_unit; B-9, R-2, §3.4 crosswalk)
-│   ├── eunomia-kit.schema.yaml                   NEW   (§3.1 kit; time-bound binding, OQ-6)
-│   ├── eunomia-calibration.schema.yaml           NEW   (§3.1 calibration; scope enum, C-11)
-│   ├── eunomia-task.schema.yaml                  NEW   (§3.1/§3.5 task; versioned prompt, OQ-6)
-│   ├── eunomia-session.schema.yaml              NEW   (§3.1 session; fob_session_id)
-│   ├── eunomia-capture-stack.schema.yaml         NEW   (§3.1 capture_stack; B-9)
-│   ├── eunomia-footage-reference.schema.yaml     NEW   (§3.1 footage_reference; A-2 + OQ-5 hold)
-│   └── eunomia-episode.schema.yaml               NEW   (§3.2 episode — the join point; C-12, OQ-11/12)
-├── events/
-│   ├── README.md                                 EDIT  (note: sync-delta entity now WARN-checked, 0d)
-│   ├── eunomia-sync-delta.schema.yaml            EDIT  (OQ-9: refresh stale "in 0c" comments;
-│   │                                                    STRUCTURALLY UNCHANGED — entity stays open string)
-│   ├── eunomia-telemetry-event.schema.yaml       UNCHANGED
-│   └── eunomia-operational-event.schema.yaml     NEW   (OQ-3; placement per OQ-C — see §9)
-├── codegen/
-│   ├── generate.py                               EDIT  (1-line conditional `field` import — bugfix, NOT growth; records only, ~360 lines)
-│   ├── generate_interfaces.py                    UNCHANGED  (0c mini-emitter; out of scope)
-│   ├── requirements.txt                          UNCHANGED  (PyYAML already pinned)
-│   └── templates/
-│       ├── semantics.py.tmpl                     EDIT  (OQ-11: 2 hard rules; OQ-9: a warn-rule registry)
-│       └── header/detail/port/protocol/*.tmpl    UNCHANGED
-├── _generated/                                   (ALL regenerated by `make codegen`; committed + drift-gated)
-│   ├── cpp/                                       UNCHANGED  (no operational C++ — OQ-10)
-│   ├── python/eunomia_contracts/
-│   │   ├── person.py … episode.py                 NEW   (10 modules incl. operational_event.py)
-│   │   ├── _semantics.py                          REGEN (re-vendored from the edited template)
-│   │   ├── __init__.py                            REGEN (now also imports the operational entities)
-│   │   └── sidecar/release/sync_delta/telemetry_event/interfaces.py  UNCHANGED
-│   └── jsonschema/
-│       ├── eunomia-person.schema.json …           NEW   (operational entities + operational-event)
-│       └── eunomia-sync-delta.schema.json         REGEN (description-comment refresh only)
-└── conformance/
-    ├── fixtures/<entity>/{valid,invalid,warn[,semantic_invalid]}/   NEW per operational entity
-    │   └── fixtures/sync_delta/warn/unknown_entity.json             NEW (exercises the OQ-9 warn check)
-    └── test_conformance.py                        EDIT  (ENTITIES dict + parity map + imports only)
+firmware/coordinator/
+├── platformio.ini                      EDIT  (add core/ + new native test sources; esp32 blocking? → OQ-2)
+├── src/main.cpp                        UNCHANGED  (placeholder shell; transport/ui wire-up is F2)
+├── core/                               ── AUTHORED (F1) ──
+│   ├── README.md                       REWRITE  (stub → real)
+│   ├── seams.h                         NEW  injected interfaces: CaptureFleet (CaptureDevicePort set),
+│   │                                        PresenceSource (L2), Clock (NTP), Rng (UUIDv4), PersistentStore (NVS)
+│   ├── trigger_state_machine.{h,cpp}   NEW  idle→arming→starting→recording→stopping; START-only-from-idle;
+│   │                                        phantom-press gate (sent==2); STOP/discard/archive transitions
+│   ├── episode.{h,cpp}                 NEW  mint_episode_id (UUIDv4) + display_id (structured, derived) +
+│   │                                        episode_ordinal + fob_session_id (random per boot)
+│   ├── ordinal_log.{h,cpp}             NEW  fob-side append-at-START ring buffer (≥2-day bound, self-bounding);
+│   │                                        durable-to-flash BEFORE the counter advances (CONTRACT §1.7)
+│   ├── sidecar_assembly.{h,cpp}        NEW  assemble eunomia::Sidecar from coordinator-owned fields;
+│   │                                        + the env-projection (current_assignment.env / current_stop.env) for discardd
+│   ├── button_feedback.{h,cpp}         NEW  instant-ack / working / lockout STATE for ALL delayed buttons (logic only)
+│   └── coordinator.{h,cpp}             NEW  the CoordinatorPort implementation tying the above to the injected seams
+├── transport/                          ── STUB in F1; AUTHORED-BY-ADAPTATION in F2 ──
+│   └── README.md                       (annotated with the §5.2/§7 plan: SoftAP, wifiLock OSC, telnet, triggers)
+├── ui/                                 ── STUB in F1; AUTHORED in F2 ──
+│   └── README.md                       (annotated with the §5.3 plan: screens, color state, take counter)
+└── test/                               ── all run by `pio test -e native` ──
+    ├── test_contract/test_contract.cpp MOVED (was test/test_contract.cpp; content UNCHANGED) [as-built]
+    └── test_core/test_core.cpp         NEW  the 12 core suites in ONE program [as-built]
 ```
 
-Everything else under `contracts/` (sidecar/, release/, the C++ targets, the 0c interfaces) is
-**untouched**. The generator picks up the new YAMLs automatically (`SOURCES = glob("*/*.schema.yaml")`
-in `generate.py`). **`generate.py` received exactly ONE 1-line edit** (during implement, not foreseen
-in the original plan): import `field` from `dataclasses` only when an object/array field uses it. 0d
-introduced the first **scalar-only** entities (kit/task/session/capture_stack/episode); every 0b entity
-had a collection field, so the unconditional `field` import was never unused before — these new entities
-exposed an `F401 unused-import` that `ruff check` flags. The fix is a bugfix, **not growth**: the DSL,
-the emitters, and **every existing 0b generated output stay byte-identical** (verified — only the 5 new
-scalar-only modules get the shorter import). This is the run's lead deviation (see the report). (The
-`generate.py` line-31 comment "operational/interfaces are 0c" remains harmlessly stale.)
+> **AS-BUILT test layout (deviation from the tree above, recorded at implement).** PlatformIO runs ONE
+> `main()` per `test/` subfolder, and only `test_`-prefixed subfolders are test suites (siblings are
+> shared code). So the four planned files (`test_state_machine`/`test_button_feedback`/`test_episode`/
+> `test_sidecar_assembly`) are **consolidated into one program** `test/test_core/test_core.cpp` (12
+> RUN_TESTs covering all four areas + detect_drop, stop/recording_suspect, env projections), and the
+> existing `test_contract.cpp` was **relocated** into `test/test_contract/` (content byte-identical) so
+> the two suites build as independent programs. Coverage is a superset of the plan, not a subset. The
+> build also needed `test_build_src = yes` in `platformio.ini` (so `pio test` compiles `core/` into the
+> test program; by default it builds only the test files + libs).
+
+**Annotation key:** `core/*` and `test/*` are **authored** by F1. `transport/`, `ui/`, `src/main.cpp`
+are **left as F2** (transport adapts Victor's `esp32-fob-wifi`; nothing in F1 imports them). discardd,
+the WiFi join, the camera pre-arm, and the camera firmware are **Victor's-and-untouched**.
 
 ---
 
-## 3. Per-entity plan
+## 5. Per-module plan
 
-> Field-level detail is **not re-typed** (CONTRACT §3 is the authority). Each entity names its source
-> file, the CONTRACT/decision reference, the key fields/enums, the hard/warn split + rationale, and
-> any cross-field/shape note. **Every entity carries the standard top-level `schema` field** (hard,
-> `enum: [eunomia-<entity>/v1]`) like all 0b records. **Hard/warn rule (the 0b judgment, applied
-> per-entity):** HARD = corruption makes the record unsafe **as an identity/join anchor**; everything
-> else is WARN / nullable (recoverable, surfaced in triage, non-blocking). Enum value-sets marked
-> "(OQ-A)" depend on the open question in §9 (hard-enum vs open-string + warn-check).
+> Signatures are in `contracts/_generated/cpp/eunomia_coordinator_port.h` /
+> `eunomia_capture_device_port.h` / `eunomia_sidecar.h` — referenced, not re-typed.
 
-| Entity / file | CONTRACT § + decision | Key fields · enums | HARD set + rationale | Cross-field / shape note |
-|---|---|---|---|---|
-| **person** `eunomia-person.schema.yaml` | §3.1 (B-8); SPEC §3.2 | `person_id`; name; `role` (OQ-A); `status` enum `active\|offboarded` (OQ-A); `onboarded_at`, `offboarded_at` (nullable); `site_ids` (scalar array) | **HARD:** `schema`, `person_id` (the only identity anchor). Decoupled from kit (binding lives on session + events, not here). Everything else WARN/nullable. | Employment lifecycle = `operational-event` records (OQ-3/4), never embedded. `onboarded_at`/`offboarded_at` = a person validity range (OQ-6). |
-| **hardware_unit** `…hardware-unit…` | §3.1 (B-9, R-2), §3.4; SPEC §3.2/§3.3 | `unit_id`; `type` `fob\|camera\|sd\|gripper` (OQ-A); `body_serial`, `insv_serial` (IAQEB…), `mac` (nullable); `batch_id`, `order_id`, `hardware_version`; `status` `received\|provisioned\|deployed\|faulted\|retired` (OQ-A); current `kit_id`, camera `side` `left\|right` (omitted for non-cameras — NOT nullable; a nullable enum rejects `null` structurally); a `provisioning` nested object (MAC/AP/IP/fw — 1 level) | **HARD:** `schema`, `unit_id`, `type` (the discriminator). Serials/provisioning facts WARN/nullable (recoverable; null on an un-provisioned unit). | **Serials are immutable + the §3.4 crosswalk key + NEVER decide kit** — documented in the README/comments, NOT a single-record rule. Status *value* checkable; **transition legality is multi-record → docs + the event log (OQ-4)**. Lifecycle history = `operational-event` records. `provisioning` is ONE nesting level (like the sidecar `provenance` group) ✓. |
-| **kit** `eunomia-kit.schema.yaml` | §3.1; SPEC §3.2.2 | `kit_id`; current binding (scalars): `left_cam_unit_id`, `right_cam_unit_id`, `fob_unit_id`; `effective_from`, `effective_to` (nullable = open) | **HARD:** `schema`, `kit_id`. The binding fields are WARN/nullable — a kit may exist before/between bindings; an incomplete binding surfaces in review, it does not invalidate the kit. | Camera→side is a property of the unit binding (NAND), not the kit. **Binding history over time = separate append-only binding/`operational-event` records (OQ-4)** — the kit record holds only the CURRENT binding (scalars). Spares = pre-bound side-typed units. |
-| **calibration** `…calibration…` | §3.1 (C-11) | `calibration_id`; `scope` enum `none\|fleet\|per_camera`; `camera_serial` (nullable for none/fleet); `method`, `captured_at`; `effective_from`/`effective_to`; heavy intrinsics (see **OQ-B**) | **HARD:** `schema`, `calibration_id`, `scope` (the discriminator that says which world we're in). Everything else WARN/nullable. | Optional entity; `calibration_id` nullable on episode. "Which world" is **data (scope), not structure** (C-11). **Heavy intrinsics shape is OQ-B** (decompose to scalars + scalar arrays, or an opaque `object` blob — NOT a matrix/array-of-arrays). |
-| **task** `eunomia-task.schema.yaml` | §3.1/§3.5; SPEC §3.2.3 | `task_id`; `task_name`, `prompt`, `rotation_id`, `station_id`; `version` (int); `category`, `bimanual` (bool), `expected_duration`; `effective_from`/`effective_to` | **HARD:** `schema`, `task_id`. `prompt`/`task_name`/`version` are WARN (content, not the anchor; resolved as-of). | **Versioned** — a prompt change is a new version; episodes resolve prompt **as-of `recorded_at`** (OQ-6). Carries ONLY task fields, never identity. `task_source` enum (`nand_staged\|sd_assignment\|none`, §3.5) already lives on the sidecar — documented here, not duplicated as a rule. |
-| **session** `eunomia-session.schema.yaml` | §3.1; SPEC §3.2.1 | `session_id`; `person_id`, `kit_id`, `site_id`, `station_id`; **`fob_session_id`** (random per fob boot — the fob-swap key); `signed_in_at`, `signed_out_at` (nullable); `task_id`; `pause_count` (int), `total_pause_ms` (number) | **HARD:** `schema`, `session_id`. `person_id`/`kit_id`/`fob_session_id` WARN (resolvable; load-bearing for the join but the session's own anchor is `session_id`). | Open/close = `operational-event` records (OQ-3). The session IS the (person, kit) time-bound binding window (carries both ids + the range) — see **OQ-D**. Pause tracking as scalars (count + total), NOT an array-of-objects (per-pause detail → events) ✓. |
-| **capture_stack** `…capture-stack…` | §3.1 (B-9) | `capture_stack_id`; `modality` enum `umi\|teleop`; `camera_model`, `camera_fw`, `fob_board`, `fob_fw`, `gripper_hw`, `sd_model`, `coordinator_sw`; `version` | **HARD:** `schema`, `capture_stack_id`. The stack fields WARN (forensic provenance; reference-by-id from episode). | Referenced by id from episode (don't bloat episodes — B-9). A firmware update = a new stack version / `unit_firmware_updated` `operational-event` (resolvable as-of). `modality` enum value-set per OQ-A (`umi\|teleop` is bounded → lean hard-enum). |
-| **footage_reference** `…footage-reference…` | §3.1 (A-2) + the 2026-06-24 spot-check block | `episode_id` (the key); `footage_state` enum `on_card\|on_styx\|shipped\|on_hades\|purged`; `locations` (see **OQ-B**); `hash` (nullable); **OQ-5 hold:** `spot_check_selected` (bool), `selection_method` enum `qc_sample\|manual_pull` (omitted when not selected — NOT nullable; absence, not `null`), `rendered_on_hades_at` (nullable), `purge_eligible_at` (nullable) | **HARD:** `schema`, `episode_id` (the key — keyed by episode, A-2), `footage_state` (the lifecycle discriminator; a footage_reference with no state is unusable). Everything else WARN/nullable. | **Must express the held-purge** (§4.2 + OQ-5): `purge_eligible_at` = max(`rendered_on_hades_at`, the N-day window); the Styx watermark is a documented bounding override (config; value deferred, §8). **CROSS-FIELD RULE (OQ-11, hard):** `spot_check_selected ⇒ selection_method` present. **Name = `purged`** (CONTRACT §3) not `purged_from_styx` (A-2) — CONTRACT wins. `locations` shape = OQ-B. |
-| **episode** `eunomia-episode.schema.yaml` | §3.2 — **the join point**; C-12, OQ-11/12 | `episode_id` (UUIDv4 join key), `display_id` (warn, DERIVED), `bimanual_episode_id`, `episode_ordinal`, `global_episode_seq`; references (as-of `recorded_at`): `person_id`, `kit_id`+`side`, `task_id`, `calibration_id` (nullable), `capture_stack_id` (nullable), `session_id`, `station_id`; `recorded_at`, `ingested_at` (nullable); state `paired`/`void`+`void_reason`/`needs_review`/`archive`/`recording_suspect`; **OQ-12 pairing:** `pairing_method` enum `episode_id\|ordinal_join\|needs_review`, `pairing_anomaly` (bool) | **HARD:** `schema`, `episode_id`, `global_episode_seq`, `kit_id` (non-empty), `side` (non-empty, enum), `station_id`, `task_id`, `session_id`, `recorded_at`. **`ingested_at` is WARN/nullable** (the operational episode exists at record time; ingest fills `ingested_at` later — distinct from `release`, where it is HARD). | **CROSS-FIELD RULE (OQ-11, hard):** `void ⇒ void_reason` (mirrors the release rule). **References stored here; as-of resolution is what ingest does (later run).** **Episode REFERENCES the footage_reference by shared `episode_id` — does NOT embed it** (footage state mutates post-record; embedding would force episode mutation). Episode joins the **sidecar by `episode_id`, by logical field name** — shape-divergence-safe (§6 / carry-forward). |
+### 5.1 `core/` — the `CoordinatorPort` implementation (F1)
 
-**Shape verdict:** see §6. 7 of 9 entities are trivially within the DSL; `calibration` and
-`footage_reference` have a structured-data edge → **OQ-B** (resolved in-DSL by decompose/opaque, with
-STOP-and-flag named as the boundary).
+**Dependency law:** `core/` depends only on `contracts/_generated/cpp/` + its own `seams.h`. It is
+hardware-free; the real OSC/telnet/SoftAP/NVS live behind the seams (provided by `transport` in F2; by
+fakes in the native tests). This is what makes `pio test -e native` cover it with no rig.
 
----
+**Implements the 6 `CoordinatorPort` ops:**
 
-## 4. The event / as-of plan (OQ-3, OQ-6, OQ-5)
-
-**4.1 Event-sourcing (OQ-3 — DECIDED).** Three layers, all reuse 0b machinery:
-
-1. **Current-state records** = the 9 entity schemas above (the materialized-view shape the consoles
-   read). The **fold/materializer is NOT implemented** — 0d defines the types + documents that current
-   state is a view over the event log (B-8).
-2. **The generic upsert/delete transport** = the existing **`eunomia-sync-delta`** envelope
-   (`{schema, delta_seq, emitted_at, entity, op∈upsert|delete, entity_id, as_of, payload}`), with the
-   OQ-9 tightening (§4.4). `payload` stays an opaque object validated against the entity schema at the
-   fold (documented; not enforced here).
-3. **A first-class `eunomia-operational-event` record** — added ONLY because some lifecycles carry
-   fields beyond the entity snapshot: hardware-unit status transitions (with `reason` + related refs),
-   person onboard/offboard, session open/close, `unit_firmware_updated`, calibration recorded, task
-   version bump. **Shape (see OQ-C):** ONE polymorphic record with an `event_type` discriminator enum
-   + common scalars (`entity`, `entity_id`, `as_of`, `reason` nullable, related-ref scalars) + an
-   opaque `payload` object — mirroring the `telemetry-event` polymorphic-discriminator pattern, so the
-   generator stays lean (no per-event conditional rules).
-
-**4.2 Lifecycle history shape (OQ-4 — THE load-bearing constraint, DECIDED).** Every repeating
-sub-structure (a unit's lifecycle history, a kit's bindings over time, multiple footage locations) is
-a **separate append-only event/binding record referenced by id — NEVER an embedded object array.**
-This is what keeps every entity inside the existing DSL (top-level scalars + ONE nested object level +
-scalar arrays) and the `generate.py` DSL/emitters un-grown. **If implementation reveals any entity needs an
-array-of-objects or 2-level nesting, that is a STOP-and-flag → raise it, do NOT silently extend the
-DSL.** (The 0d analog of 0c's closed-vocabulary boundary.)
-
-**4.3 As-of resolution (OQ-6 — DECIDED).** Encoded *temporally* at the type level:
-- Validity ranges `effective_from` / nullable `effective_to` (= open/current) on the time-bound
-  bindings: **kit↔units** (on `kit`), **kit↔person** (on `session`; see OQ-D), **calibration
-  validity** (on `calibration`), **task-version validity** (on `task`). Person carries
-  `onboarded_at`/`offboarded_at`.
-- Events carry `as_of`; episode carries `recorded_at`.
-- The **rule** — "an episode resolves its references against the binding true at `recorded_at`" — is
-  **documented** in the episode README + schema comments. The **resolver runs at ingest = a later
-  run.**
-
-**4.4 The footage held-purge (OQ-5 — DECIDED).** `footage_reference` expresses the 2026-06-24
-spot-check semantics: keep until **(a) `rendered_on_hades_at` is set AND (b) the N-day window elapses,
-whichever is LONGER** → `purge_eligible_at`; `spot_check_selected` + `selection_method`
-(`qc_sample|manual_pull`) mark *why* it is held; the Styx watermark is a documented config bounding
-override. The N%/N-day/watermark **values stay OUT of scope** (tuning, §8). Faithfulness check at
-implement: the lifecycle expresses held-purge / N-day / watermark.
-
----
-
-## 5. The §3 rules — types + documentation, NOT enforced single-record validation
-
-The join / precedence / as-of logic is **multi-entity, join-time** — not validatable on one record
-(the honest-scope position 0b/0c established). Encoded as **typed fields + prose** in the entity
-READMEs / schema comments; `_semantics` carries **only** the two genuine single-record cross-field
-checks (OQ-11).
-
-| Rule (CONTRACT §) | How 0d encodes it | Single-record `_semantics` rule? |
+| Op | core/ logic | delegates to seam |
 |---|---|---|
-| **Identity precedence** §3.3 (kit←fob, side←NAND, operator←roster, station+prompt←fob trigger; serials never decide) | Typed reference fields on `episode` + prose; precedence applied by the ingest resolver (later run) | **No** (multi-entity) |
-| **Crosswalk + serial retargeting + kit aliases** §3.4 | `insv_serial`/`body_serial` on `hardware_unit` as the immutable crosswalk key; retargeting + alias mapping documented in the README | **No** (multi-entity) |
-| **Task precedence** §3.5 (NAND → SD → none) | `task_source` enum (already on the sidecar) documented on `task`/`episode`; the winner is recorded, not re-derived | **No** |
-| **Dual-signal join** §3.6 (ordinal spine + duration guardrail; tiebreaks `ordinal_slip`/`board_swap`/`clock_suspect`/`needs_review`; phantom-press gate `sent==2`; block-labeling; void-by-flag) | `pairing_method` + `pairing_anomaly` on `episode` (C-12, OQ-12); tiebreak names + the gate documented; the join itself is a later run | **No** |
-| **Void requires reason** §4.1/§3.2 | — | **YES** — `episode.void ⇒ void_reason`, hand-written in `_semantics`, keyed by the episode schema id (OQ-11; mirrors the release rule) |
-| **Footage hold consistency** (OQ-5) | — | **YES** — `footage_reference.spot_check_selected ⇒ selection_method` present, keyed by the footage schema id (OQ-11) |
+| `mint_episode_id()` | UUIDv4 (the §7/C-9 pairing key, identical both arms) + derive `display_id` (`<YYYYMMDD>_<operator>_<station>_<NNNNNN>`, warn/derived) | `Rng`, `Clock` |
+| `trigger(cameras)` | The state machine + the phantom-press gate: advance only from `idle`; fire the fleet **serialized**; count acks; return `sent==2`. `sent==0`→drop (phantom); `sent==1`→one-sided orphan → `needs_review`/void. Bump `episode_ordinal` + append the ordinal-log line **after** the durable write. | `CaptureFleet` (start), `PresenceSource` (both present?), `PersistentStore` |
+| `read_clip_filename(camera)` | At STOP: recover the clip name; confirm it grew → set `recording_suspect` (NET-NEW, coordinator-owned) | `CaptureDevicePort.read_back_filename` (telnet `ls`) |
+| `write_sidecar(camera, rec)` | Assemble the `eunomia-sidecar/v1` record (§2.1 option C) and **project it to the env files** discardd consumes | `CaptureDevicePort.write_sidecar` (telnet env push) |
+| `detect_drop()` | Return dropped cameras from the **L2 station table only** (never OSC) — the camera-count source feeding the 2/2·1/2·0/2 gate | `PresenceSource` (`esp_netif_get_sta_list`) |
+| `flush_telemetry()` | Drain the queued god's-view + ordinal-log events in the idle gap (single-radio) | `CaptureFleet`/uplink (F2) |
+
+**Authored core data:** `episode_ordinal` (the fob label ordinal), `fob_session_id` (random per boot;
+the fob-swap disambiguator, ingest keys on `(kit_id, fob_session_id, ordinal)`), the **fob-side
+ordinal-join ring buffer** (CONTRACT §1.7: append-at-START, `episode_seq`+NTP wallclock+kit/fob id,
+≥2× drain cadence ≈ 2 days/few-hundred, self-bounding) — this is **net-new vs discardd** (discardd has
+only the camera-side NAND `global_episode_seq`; the fob backup is the independent medium). The durable
+ordinal is written **to flash before the counter advances** (crash/swap can't lose or reuse a number,
+SPEC §1.8) — abstracted behind `PersistentStore` so the native test uses a fake and esp32 uses NVS.
+
+**Sidecar assembly (the F1 conformance artifact):** `core/` fills the coordinator-owned `v1` fields —
+`identity` (`kit_id`←fob, `operator_id`/`station_id`/`task_*`/`prompt`/`rotation_id`/`session_id` from
+sign-in/assignment, `episode_id`, `bimanual_episode_id`, `episode_ordinal`, `display_id`,
+`assignment_source`), `timing` (`started_unix`/`stopped_unix`/`start_skew_ms`), `provenance`
+(`fob_id`/`fob_build`/`site_id`/`modality=umi`), `outcome` (`stop_reason`/`archive`/`recording_suspect`)
+— and accepts the camera-owned fields (`camera_id`/`side`←NAND, `camera_firmware`, `kit_version`,
+`global_episode_seq`, `seq`, `files.back`, `record_settings`) that discardd supplies. It proves the
+assembled record validates (§8). Identity precedence (§3.3: kit←fob, side←NAND) and task precedence
+(§3.5) are honored by *which actor fills which field*, exactly as the env mechanism already enforces.
+
+### 5.2 `transport/` — the hardware-coupled swappable layer (F2; spec drawn now)
+
+WiFi SoftAP hosting (`PANTHEON-kit_<n>`, OPEN, `192.168.42.1`, DHCP `.2–.6`) + the **`wifiLock`-serialized
+fire-and-forget OSC client** (`oscSendNoWait`: raw socket, send+flush+~120 ms grace+close, never read
+the body — the OSC off-by-one response lag) + the **telnet client** (`ls -t` clip-filename read;
+`current_assignment.env`/`current_stop.env` write) + the **file-trigger writes** to discardd
+(`start_at`/`stop_at`, prefer `U<uptime>`). **THE TWO HARD RULES live here** (§7). The implementation
+**adopts/adapts Victor's `esp32-fob-wifi` 3.8.3 source** (blocked on obtaining it, §3 finding 6) and is
+the home of the **dedicated-core `wifiTask`** (pinned core 0; UI+touch on core 1; fed by `core/`'s
+fire-and-forget queue) that makes the instant touch-ack possible. It also receives the SD-daemon
+provisioning push (OQ-5). Implements the `CaptureDevicePort` (the X3 OSC+telnet adapter) that `core/`
+drives. Swapping the board/radio = replace `transport/`, not `core/`.
+
+### 5.3 `ui/` — the CYD touchscreen (F2; spec drawn now)
+
+The SPEC §1.8 screens, presentation only (logic is in `core/button_feedback`): full-screen color state
+(idle/working/recording/locked), **instant visual flip on touch** (before any network), the **take
+counter**, the GUARDAR/DESCARTAR decision + toast, the **camera-count color** (green 2/2 / amber 1/2 /
+red 0/2 from `detect_drop`), the **"revisa cámaras"** warning on an incomplete stop, haptic/audio tick
+on a registered press, and the lockout (ignore taps during working). The button-feedback rule applies to
+**ALL delayed buttons** (§6). Swappable without touching `core/`.
+
+### 5.4 Relationship to Victor's stack — the explicit boundary (per module)
+
+| Module | F1 AUTHORS | ADOPTS from Victor | Victor's-and-UNTOUCHED |
+|---|---|---|---|
+| `core/` | state machine, ordinal/episode logic, ordinal-log ring buffer, sidecar assembly, button-feedback state | (nothing — pure) | — |
+| `transport/` (F2) | the `CaptureDevicePort`/`CoordinatorPort` seam wiring | `esp32-fob-wifi` SoftAP, `oscSendNoWait`, `wifiLock`, `esp_netif_get_sta_list`, the telnet/trigger/env mechanism | the WiFi join (`S99zfobjoin`/`x3_fob_link`/`x3_join_fob`) |
+| `ui/` (F2) | the CYD screens against the core state | the proven UX (color state, ribbon, take counter) | — |
+| camera-side | — | reads discardd's `v2` sidecar shape (reconciled at ingest) | **discardd**, the camera pre-arm/cross-cam sync, the camera firmware (`fobjoin_rev4`), the SD provisioning daemon |
 
 ---
 
-## 6. Shape-budget check (the OQ-4 boundary, per entity)
+## 6. The state machine + the two guarantees + button-feedback for ALL delayed buttons
 
-**The DSL admits:** top-level scalars · ONE level of nested object (`fields:[…]`) · scalar arrays
-(`items:<scalar>`). It does **NOT** admit array-of-objects or 2-level nesting (confirmed in
-`generate.py`: `emit_dataclass` only emits sub-dataclasses for top-level objects; arrays map to a bare
-`list` with a scalar `items`). Repeating structures → separate event/binding records (OQ-4).
+**States / transitions** (`core/trigger_state_machine`):
 
-| Entity | Within DSL? | Why |
-|---|---|---|
-| person | ✅ | scalars + one scalar array (`site_ids`) |
-| hardware_unit | ✅ | scalars + ONE nested object (`provisioning`); lifecycle history → events |
-| kit | ✅ | all scalars (current binding); binding history → records |
-| calibration | ⚠️ → **OQ-B** | scalars + `scope`/validity fit; the **intrinsics matrix** is the only risk — resolve by decompose-to-scalars-+-scalar-arrays OR an opaque `object` blob; a 3×3 matrix / array-of-matrices would be array-of-arrays = **STOP-and-flag** |
-| task | ✅ | all scalars |
-| session | ✅ | scalars (pause tracking = count + total, NOT per-pause objects) |
-| capture_stack | ✅ | all scalars |
-| footage_reference | ⚠️ → **OQ-B** | scalars + the OQ-5 hold fields fit; `locations` is the only risk — resolve as a **scalar array of strings**; structured per-location `{tier, path, verified_at}` would be array-of-objects = **STOP-and-flag** |
-| episode | ✅ | all scalars (references footage_reference by id, does NOT embed it) |
-| operational-event | ✅ | scalars + `event_type` enum + an opaque `payload` object (no nesting) — mirrors `sync-delta`/`telemetry-event` |
+```
+idle ──START(valid only here)──▶ arming ──both present & both ack (sent==2)──▶ starting ──▶ recording
+  ▲                                  │                                  │
+  │                                  └── sent<2 (phantom/one-sided) ────┘ (no advance; orphan voided/needs_review)
+  │                                                                       
+  └──────── stopped ◀── stopping ◀── STOP (valid only from recording) ◀──┘
+```
 
-**Verdict:** with OQ-B resolved as recommended (decompose / scalar-array / opaque-object), **every
-entity stays within the existing DSL and `generate.py` does not grow.** The two ⚠️ entities are flagged
-now precisely so the STOP-and-flag boundary is honored at implement, not silently crossed.
+**Guarantee 1 — spam-safety (START-only-from-idle).** A START is acted on **only** from `idle`; from
+`arming`/`starting`/`recording`/`stopping` further inputs are **dropped or coalesced, never
+double-fired**. Spamming the screen is harmless **by design** (SPEC §1.8 core layer), independent of the
+UI. Proven off-target by feeding a burst of STARTs mid-sequence and asserting exactly one fire.
 
----
+**Guarantee 2 — phantom-press gate (`sent==2`).** `trigger()` advances only when **both cameras are
+present (L2) AND both acked**: `sent==2` ⇒ START commits (ordinal advances after the durable write);
+`sent==0` ⇒ dropped (`phantom_start`, button locked, non-blocking); `sent==1` ⇒ kept-but-`needs_review`
+(one-sided orphan voided). At `<2` cameras present, START is **locked** (the GRABAR-locks-at-<2-cams
+rule). Proven off-target with a `PresenceSource`/`CaptureFleet` fake returning 0/1/2.
 
-## 7. Conformance plan
-
-- **Per operational entity (10 incl. operational-event):** fixtures in `valid/` (real `jsonschema`
-  Draft 2020-12 accepts + stdlib `hard == []`), `invalid/` (both reject — a missing hard field or a
-  bad enum), `warn/` (a `minimal_hard_only` record: `hard == []` **with** warnings — exercises the
-  severity split). Plus `semantic_invalid/` for **`episode`** (void without reason) and
-  **`footage_reference`** (selected without method) — `jsonschema` accepts (structurally fine), the
-  overlay hard-rejects the cross-field violation.
-- **The OQ-9 warn check** gets a **new** `sync_delta/warn/unknown_entity.json` (`entity: "gizmo"`):
-  `hard == []` (entity stays an open string, non-empty) **with** a warning (value not in the known
-  operational set). The existing sync_delta valid/warn fixtures already use real entity names
-  (`episode`/`hardware_unit`/`person`) — **verified, so they pass cleanly with no change**; the
-  `empty_entity` invalid fixture stays a HARD reject (non_empty).
-- **`test_conformance.py` growth (only):** add each entity to the **`ENTITIES`** dict
-  (`"<entity>": ("eunomia-<entity>", <module>.validate_full)`), add it to the **validate-parity map**
-  in `test_validate_matches_validate_full_hard_channel`, and add the module **imports**. The
-  parametrized `valid/invalid/warn/semantic_invalid` test bodies pick the new entities up via
-  `_cases()` — **no new test logic.** `testpaths` already includes `contracts`, so fixtures
-  auto-collect. The 0c interface-port tests are untouched.
+**Button-feedback for ALL delayed buttons (SPEC §1.8 + the 2026-06-24 generalized rule).**
+`core/button_feedback` is a per-button state `idle → ack(instant) → working(locked) → settled` driven by
+"touch registered" and "action completed" events, **decoupled** so the visual ack fires *before* any
+network and the working state **ignores taps** (lockout) until the slow action completes. It applies to
+**START** (~3 s pipeline re-init — the worst case, camera-side latency F1's UI must behave correctly
+*given* it exists), **STOP** (finalize/flush), and **any settings/sign-in/confirm** that round-trips to
+the camera network or god's-view. `ui/` (F2) renders these states; `core/` guarantees them. Proven
+off-target: every delayed button flips to `ack` synchronously and refuses re-entry while `working`.
 
 ---
 
-## 8. Gate + drift impact
+## 7. THE TWO HARD RULES — how `transport/` enforces them, mapped to Victor's source
 
-- **The 5 Hermes Python gates stay byte-identical** (`uv run pytest` → `ruff check .` →
-  `ruff format --check .` → `mypy .` → `lint-imports`, on tool defaults — no `[tool.ruff]`/`[tool.mypy]`
-  added). New generated Python must be ruff-format-clean **as emitted**; `make codegen` already runs
-  `ruff format contracts/_generated/python`, so the drift gate stays meaningful.
-- **No new deps.** `jsonschema`/`types-jsonschema` already dev-pinned (0b); the shipped validator
-  stays **pure-stdlib**; PyYAML already pinned for codegen. (Confirm at implement; state plainly if
-  any dep is added — none expected.)
-- **import-linter unchanged.** All new modules live under `eunomia_contracts` (intra-package); the
-  forbidden contract (`eunomia_contracts` imports no other `eunomia_*`) still holds.
-- **`generate.py` carries ONE 1-line bugfix** (conditional `field` import, see §2) and
-  `generate_interfaces.py` is untouched — the DSL/emitters are otherwise unchanged and **every existing
-  0b generated output is byte-identical**. The new entities ride the existing glob; the only
-  hand-written *logic* is in `templates/semantics.py.tmpl` (OQ-11 two hard rules + OQ-9 warn-rule
-  registry), which is **re-vendored** into `_generated/.../_semantics.py` by `make codegen` — editing
-  the *template* does not edit the *generator*.
-- **C++ gates unaffected** — no operational C++ target (OQ-10); `clang-format`/`pio test -e native`
-  run on the unchanged firmware + the unchanged generated headers.
-- **The one `events/` change (OQ-9)** is additive-safe: `entity` stays an open string; only a
-  WARN-level value-set check + stale-comment refresh. No version bump (no narrowing). The known set is
-  hand-coded in `_semantics` as the 9 current-state entity names.
+> These live in `transport/` (F2). `core/` is *built to not violate them*: it reads presence only via the
+> L2 `PresenceSource` (never OSC), and it issues exactly one serialized fleet-trigger per START.
+
+1. **Zero (concurrent) background OSC.** Camera presence is tracked **at L2 only**
+   (`esp_netif_get_sta_list` / the AP DHCP station table) — **`detect_drop()` never polls OSC**. The fob
+   emits OSC **only at GRABAR/DETENER**, **serialized under `wifiLock`**, one camera at a time (~150 ms
+   spacing), **fire-and-forget** (`oscSendNoWait`: raw socket, send+flush+~120 ms grace+close, never read
+   the body — the off-by-one response lag). Maps to `esp32-fob-wifi`'s `wifiLock` + `oscSendNoWait`. F1's
+   cross-actor obligation (§3 finding 3): do not contend with discardd's idle reassert (kept at
+   `LOCK_REASSERT_S=3600`).
+2. **discardd locks video mode; the fob does NOT arm per take.** discardd continuously re-asserts
+   `RES_3008_1504P100`/`captureMode=video`, so the fob fires `startCapture` **directly** (no per-take
+   arm). **Recording DEPENDS on discardd running on every card** — F1 builds on this and never
+   reimplements it. STOP ordering: fire **both** `stopCapture`s first, then finalize per camera (telnet
+   `ls`, confirm grew → `recording_suspect`, push `current_stop.env`) — avoids the stop-stagger artifact
+   (CONTRACT §1.7).
 
 ---
 
-## 9. Open questions — RESOLVED at annotation (2026-06-24)
+## 8. Conformance / test plan (all `pio test -e native`, no rig)
 
-> OQ-3/4/5/6/9/10/11/12 were pre-approved (see §1/§4). The four genuinely-new ones below are now
-> resolved by Mo's notes; recorded here as the implemented decisions.
+| Test (NEW unless noted) | Proves |
+|---|---|
+| `test_contract.cpp` (UNCHANGED) | the 0b/0c conformance + ports-implementable still pass |
+| `test_state_machine.cpp` | **spam-safety** (START dropped from every non-idle state; a burst → one fire) + **phantom-press gate** (no commit unless `sent==2`; 0/1/2 paths) + STOP/discard/archive transitions |
+| `test_button_feedback.cpp` | instant-ack flips synchronously; working-state lockout drops taps; settles only on completion — for START, STOP, and a round-tripping settings/confirm |
+| `test_episode.cpp` | `episode_id` uniqueness + identical-both-arms; `display_id` derivation; ordinal **monotonic + durable-before-advance** (a fake `PersistentStore` asserting flash-write precedes the bump; restart resumes, never reuses) |
+| `test_sidecar_assembly.cpp` | the assembled **`eunomia-sidecar/v1`** record `serialize_sidecar`→`parse_sidecar` round-trips **and** validates against the golden `contracts/conformance/fixtures/sidecar/{valid,warn}/` (the `EUNOMIA_FIXTURES_DIR` wiring already in `platformio.ini`) — the F1 correctness artifact for option (C) |
 
-**OQ-A — Hard-enum vs open-string + WARN-check for the new vocabularies. → RESOLVED (2).** The test is
-**"closed by the physics of the domain, or just by today's list?"** — because a hard enum can only be
-*added to* additively (§5), a value that should have been allowed becomes a hard break.
-- **HARD enum (domain-closed):** `episode.side`/`hardware_unit.side` (`left|right` — two arms),
-  `calibration.scope` (`none|fleet|per_camera` — the calibration model), `capture_stack.modality`
-  (`umi|teleop`), `footage_reference.footage_state`, `footage_reference.selection_method`,
-  `sync-delta.op`, and `episode.pairing_method` (`episode_id|ordinal_join|needs_review`) — **but
-  `pairing_method` is the hard enum MOST likely to need a future additive value (a new pairing
-  strategy); eyes open** (noted in the episode schema comment).
-- **OPEN string + WARN-check (today-closed / growth-prone):** `hardware_unit.type`,
-  `hardware_unit.status`, `person.role`, `person.status`, `operational-event.event_type` (the most
-  growth-prone — every new lifecycle adds one). These carry **no `enum:` in the YAML** (so the
-  generated JSON Schema stays an open string = additive-safe, no §5 narrowing) + a **hand-written
-  WARN-level value-set check** in `_semantics` (the OQ-9 pattern), keyed by schema id.
-
-**OQ-B — Calibration intrinsics + footage `locations`. → RESOLVED (in-DSL).**
-- **calibration:** a few queryable scalars + a scalar array (`distortion_coeffs`) + an **opaque
-  `object` blob** (`intrinsics`, type `object`, no `fields`) for the heavy data — because the
-  operational store only needs `scope` + validity + `camera_serial` + a reference; the full intrinsics
-  matrix is consumed by the **Hermes-side** render from `camera_intrinsics.json`, not queried
-  operationally. (Heavy data lives where it's used — not dodging the DSL.)
-- **footage `locations`:** a **scalar array of strings** (`tier:path`).
-- **The two STOP-and-flag lines stay named + honored:** a 3×3 matrix / array-of-matrices for
-  calibration, and structured per-location objects for footage — **do not silently cross them**.
-
-**OQ-C — `operational-event` shape + placement. → RESOLVED.** ONE polymorphic record with an
-`event_type` discriminator + opaque `payload` (mirror `telemetry-event` — keeps the generator lean,
-no per-event conditional rules). Placed in **`contracts/events/`** (it is an event record; `events/`
-already holds the operational transport `sync-delta`; the glob is location-agnostic).
-
-**OQ-D — Where the kit↔person binding lives. → RESOLVED (1).** The **`session`** entity IS the
-kit↔person binding (it already carries `person_id` + `kit_id` + the `signed_in_at`/`signed_out_at`
-window), plus a roster-level `operational-event` for resolution outside a session window. **No 10th
-entity.** This models kit↔person as inherently shift-scoped — correct for UMI collection (operators
-are assigned per shift). (Option (2), a standing kit→person assignment independent of shifts, is not
-the case here.)
+The conformance pattern matches `test_contract.cpp`'s `check_dir<>` over the golden fixtures: the C++
+field-bag owns the structural layer (presence/type of hard leaves); the enum/non-empty/conditional/
+cross-field layers stay Python/JSON-Schema (the existing split, OQ-5 of 0b). **transport/ui validation
+(F2) is rig/mock:** the `CaptureDevicePort` X3 adapter is exercised against a mock OSC/telnet server
+off-target and on the rig for the real two-hard-rules behavior (the one-machine→mock rule).
 
 ---
 
-## 10. What 0d deliberately does NOT do (restated)
+## 9. Build + gate impact
 
-- **No module logic** — no firmware state machine, no ingest/identity/join/QC implementation, no
-  edge/store, no consoles. 0d is the *contract* (types + schema + documented rules), not its consumers.
-- **No join / precedence / as-of resolution IMPLEMENTATION** — later runs. 0d defines types + docs.
-- **No DSL growth** — if an entity needs array-of-objects or 2-level nesting, STOP-and-flag (OQ-4 /
-  OQ-B). No new generator machinery; `generate.py` stays records-only (only a 1-line conditional-import
-  bugfix, §2 — no DSL/emitter growth); the 0c interface emitter is out of scope.
-- **No substrate scripts, no web stack, no Hermes-side cleaning/render code.**
-- **Does not pick** the Hermes contract-consumption mechanism, the spot-check tuning values (N%,
-  N-day, watermark), or the firmware-vs-ingest resolution of the **sidecar-shape divergence**. On that
-  divergence (carry-forward): the operational `episode` **joins the sidecar by `episode_id`** and
-  references sidecar fields **by logical name** (`episode_id`, `global_episode_seq`, `side`, `kit_id`,
-  …) — so the operational model does **not** assume the nested-vs-flat shape. The divergence stays
-  visible and is resolved in the firmware run or by ingest tolerance, **not here**.
+- **The 5 Python gates + the codegen-drift gate are UNAFFECTED** — F1 touches no `contracts/` source and
+  no Python (it adds C++ under `firmware/coordinator/`, outside the import-linter; its boundary is the
+  include path + the conformance gate). Drift stays 0; `pio test -e native` stays the blocking C++ gate.
+- **`pio test -e native` (BLOCKING)** gains the four new test files (state machine, button feedback,
+  episode/ordinal, sidecar assembly) — the core correctness proof.
+- **`pio run -e esp32` (esp32 target build) — flip to blocking? → OQ-2.** CONTRIBUTING/OQ-13 says flip
+  "when `firmware/coordinator/core/` lands" — F1 lands it. `core/` is pure C++17 with header-only
+  contract deps (no Arduino/hardware), so it should compile clean under `env:esp32`. **Recommendation:
+  flip `pio run -e esp32` to blocking at end of F1, conditional on `core/` building clean with no added
+  deps** (it will); `clang-tidy` can stay non-blocking until transport/ui (F2). If the esp32 build pulls
+  surprises, defer the flip to F2 and say so.
+- **No new firmware deps in F1** (Unity is already the native test framework; the contract headers are
+  the only include). `transport/` (F2) will add the ESP32/WiFi/OSC/telnet deps.
+- **Hand-written C++ is `clang-format`-clean**; the generated headers stay exempt but must compile in the
+  native test (they already do).
+
+---
+
+## 10. Open questions (numbered — options + recommendation)
+
+1. **One run or split?** (the LEAD OQ, §2.2) — Options: (a) **split**, F1=`core/`, F2=`transport`+`ui`;
+   (b) one run. **Recommend (a)** — provable-off-target + authored-not-adapted + the fob source isn't
+   available yet for transport.
+2. **Sidecar reconciliation** (§2.1) — Options (A) converge discardd→`v1`; (B) ingest-tolerates-both,
+   coordinator emits nothing; (C) **hybrid** (core assembles `v1`; discardd keeps `v2` via env push;
+   ingest reconciles by `episode_id`). **Recommend (C)**, with "leave discardd's writer untouched in F1."
+3. **Flip `pio run -e esp32` to blocking in F1?** (§9) — Options: (a) flip now (core/ is pure, should
+   build clean); (b) defer to F2. **Recommend (a)** conditional on a clean esp32 build of `core/`.
+4. **`recording_suspect` ownership/placement.** It is NET-NEW and coordinator-owned (fob STOP-time
+   clip-grew check). Options: (a) carry it only in the coordinator's `v1` record (F1); the card gets it
+   when/if discardd converges (option A, later); (b) push it into `current_stop.env` now so discardd can
+   stamp it onto `v2` (a *tiny* discardd-reads-one-more-env-var change — coordinate with Victor).
+   **Recommend (a)** for F1 (no discardd change); revisit (b) when converging.
+5. **SD-daemon provisioning RECEIVE path** (§3) — not in today's 6-op `CoordinatorPort`. Options:
+   (a) **out-of-band transport channel** feeding an operational `hardware_unit.provisioning` record (no
+   contract change); (b) add a `CoordinatorPort` op (a contract-change PR). **Recommend (a)** — it's
+   operational-model data, not part of the capture-trigger contract; it is Victor's daemon and an F2
+   transport receive at most. Flag (b) as a contract-change OQ if a port op is wanted.
+6. **Precise-fire / `start_at.trigger`.** Does F1's transport (F2) *also* write `start_at.trigger`
+   (preferring `U<uptime>`) to feed discardd's precise cross-cam fire, or fire OSC directly only?
+   **Recommend: direct OSC fire is F1/F2's job; writing `start_at` to feed Victor's precise-fire is
+   optional and OFF until his pre-arm/sync work lands** — F1 neither implements nor depends on pre-arm.
+7. **`fob_session_id` source.** Confirm it is minted in `core/` (random per boot, the fob-swap
+   disambiguator) and surfaced on the operational `session` record (0d), not on the sidecar. **Recommend:
+   yes — `core/` mints it; it rides the ordinal-log + operational session, per CONTRACT §3.6.**
+
+---
+
+## 11. What F1 deliberately does NOT do (restated)
+
+- **Does not reimplement Victor's camera-side stack** — discardd, the WiFi join
+  (`S99zfobjoin`/`x3_fob_link`/`x3_join_fob`), the camera-side pre-arm/cross-cam-sync, the camera
+  firmware. F1 **integrates with** them and depends on discardd holding video mode.
+- **Does not change discardd's `v2` writer** (option C) — convergence to `v1` is a separate, coordinated
+  change owned with Victor.
+- **No ingest/edge/console/Hermes code.** If the reconciliation's `v2→v1` translation lands at ingest,
+  that is a later run; F1 only specifies the `v1` shape the coordinator emits.
+- **No spot-check, no substrate, no web stack.**
+- **No new contract changes** — option (C) needs none. If the SD-daemon receive (OQ-5) or
+  `recording_suspect` (OQ-4) is taken down a port-op path, that is flagged as a contract-change OQ, never
+  a silent edit to the merged `contracts/`.
+- **(Recommended split) F1 does not implement `transport/` or `ui/`** — those are F2, on Victor's source
+  + the rig. Their spec is drawn here (§5.2/§5.3/§7) so the boundary and the two hard rules are settled.
 
 ---
 

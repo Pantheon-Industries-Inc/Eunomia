@@ -30,8 +30,9 @@ Run everything with `make gates`. Local == CI. The blocking gates:
 - **Cross-language**: the **conformance gate** (everything emitting/consuming the data validates
   against the generated JSON Schema + golden fixtures) and the **codegen-drift** gate
   (`make codegen && git diff --exit-code contracts/_generated`).
-- **Non-blocking in Run 0a** (OQ-13): the esp32 target build and `clang-tidy` (flip to blocking when
-  `firmware/coordinator/core/` lands).
+- **esp32 target build — now BLOCKING** (Run F1, OQ-13): flipped on when `firmware/coordinator/core/`
+  landed (core/ is pure C++17 and must cross-compile for the ESP32 it will run on; built under
+  `-fno-exceptions -fno-rtti`). **`clang-tidy` stays non-blocking** until `transport/`/`ui/` land (F2).
 
 The dependency law — **everything depends only on `contracts/`** — is enforced by the per-language
 import-boundary check (import-linter for Python) plus the cross-language conformance gate.
