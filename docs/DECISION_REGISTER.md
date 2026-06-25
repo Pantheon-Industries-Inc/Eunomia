@@ -1796,7 +1796,755 @@ drift re-confirmed. All checks green: `gates` pass, `cpp` pass (clang-format per
 
 **HANDED to Conductor for the squash-merge.** Post-merge: delete the remote branch; **the squash produces
 a NEW commit on `main` (NOT `f13f42f`, which is the pre-merge branch commit)** — record THAT squash hash
-here, matching the F1 pattern. **[SQUASH HASH ON MAIN: PENDING]**
+here, matching the F1 pattern. **SQUASH HASH ON MAIN: `a0ba39c`** (`[FEAT] Run F2 — coordinator/transport/: seams on Victor's WiFi-OSC fob (env:cyd + clang-tidy blocking) (#6)`). Remote branch deleted. Merge note: `gh pr merge --delete-branch` skipped its LOCAL cleanup because `main` was checked out in another worktree — server-side squash completed fine, remote branch deleted manually; the stale local F2 worktree is harmless (gets discarded when the fresh F3 worktree is cut off main). Docs (the contract/spec/etc. updates) were folded into this merge.
 
 Squash subject: `[FEAT] Run F2 — coordinator/transport/: seams on Victor's WiFi-OSC fob (env:cyd +
 clang-tidy blocking)`.
+
+## F3 plan — grounding pass + decisions 2026-06-25
+
+The F3 plan-only run (runF3_ui_prompt.md) got a read-only grounding pass against the MERGED F1/F2 code
+(the plan's own "code wins over doc" rule). Plan is sound; SIX code-vs-plan discrepancies surfaced, all
+legitimate, all folded before implement. Two material. The plan UNDERSTATED the work (esp. A + E); F3 is
+correspondingly larger but still ONE coherent run (the CYD UI + the two follow-ups — NOT split). The
+agent's read is trusted (specific file:line cites, internally consistent, matches the F2 no-queue
+finding — same standard as F2's grounding which verified out). Decisions:
+
+- **A (build config) — MATERIAL.** Eunomia's `[env:cyd]` is BARE (no lib_deps, no TFT flags), contrary
+  to the plan's "F2 already added the TFT dep, just flip the guard" (F2 built env:cyd headless-minimal —
+  no point carrying an unused TFT dep). F3 PORTS the full TFT config from the vendored platformio.ini:
+  `bodmer/TFT_eSPI@^2.5.43`, `-DPANTHEON_HAS_TFT=1`, the CYD display block (USER_SETUP_LOADED,
+  ILI9341_2_DRIVER, pins 12/13/14/15/2/-1/21, fonts, SPI freqs), and the **colour-fix** `TFT_RGB_ORDER=
+  TFT_BGR` + `TFT_INVERSION_ON` — **colour-critical: the GO/NO-GO green/red must not swap** (verify on
+  the board). ui/touch carries the XPT2046 pins (T_CLK=25/MISO=39/MOSI=32/CS=33/IRQ=36, separate VSPI
+  bus — hardcoded in main.cpp, not the ini). Real config porting, not a guard flip. env:esp32 stays
+  headless.
+- **B (button_feedback) — MATERIAL, corrects OQ-3.** `DelayedButton` is a standalone **2-STATE** primitive
+  (`working()`/not), NOT a Coordinator member, zero callers today (only a unit test; coordinator.h:11
+  says so). So there is NO `core::button_feedback` to poll and NO core accessor for it. Correct model
+  (matches the F2 no-queue finding): **ui/ OWNS the DelayedButton instance(s)**, drives `press()` on touch
+  → runs the slow inline action → `complete()`; `render_state` reads `working()`. The instant-ack =
+  `working()` flipping true synchronously on press (before the action). The visual states
+  (idle/working/recording/locked) are ui/'s MAPPING of `working()` + other core state into pixels; the
+  primitive is 2-state. (Plan §3's table implied tri-state — corrected.)
+- **C (the real accessor) — the actual "one tiny core accessor."** GO/NO-GO must NOT call `detect_drop()`
+  per frame (it's a MUTATING port op). The live present-count lives in transport's PresenceSource
+  (`g_registry.present()`). **DECISION: add a tiny `const Coordinator::present_count()` reading
+  `deps_.presence`** (read-only, no logic) — keeps ui reading core state through the coordinator (the
+  ui→core seam), genuinely minimal. (Alt: app glue feeds the count to ui = zero core change but ui reads
+  from app/transport; the const accessor is preferred.) **EXPANDS the core-edit boundary from "enums
+  only" to "enums + one tiny const present_count() accessor" — surfaced, not silent.** `detect_drop()`
+  stays for drop-detection logic, not rendering.
+- **D (stale comments)** — "ui/ (F2)"→"(F3)" in button_feedback.h:8, coordinator.h:12 (free — touched by
+  the §5.1 enum cleanup) + core/README.md:24. Comment-only; rides the enum-cleanup edit.
+- **E (omitted screen elements)** — FOLD IN: **MESA re-entry** (MAIN-header double-tap → table change;
+  the take-counter "resets on table change" depends on it), **CONFIRM 45s auto-timeout**, and the
+  **three-reason startGate** (CAMS/UPLINK/SAVING, not just camera-count): SAVING → button `working()`/
+  lockout (can't START mid-finalize); **UPLINK → INVESTIGATE** given the uplink is code-disabled (F2
+  uplinkUp()→return false) — drop-if-vestigial (do NOT gate START on a dead uplink), else map + flag.
+  **LLAMAR "call lead" button**: keep-if-UI-only-splash (no network — cheap, operator-familiar),
+  drop/defer-if-needs-network (the dead uplink — could ride the god's-view live uplink later). Both
+  UPLINK + LLAMAR are code-determined; flag the resolutions.
+- **F (clang-tidy mechanics + Makefile)** — to extend blocking tidy to core/: (1) add `core/*.cpp` to
+  TIDY_FILES, (2) extend `.clang-tidy` HeaderFilterRegex to `firmware/coordinator/core/.*` (the 5 enums
+  are in HEADERS — the check only fires if the header passes the filter), (3) reconcile the PRE-EXISTING
+  Makefile inconsistency (help text line 26 + gates-cpp-tidy help claim "core/ + transport/proto/" while
+  TIDY_FILES + echo line 63 are proto-only). ui/ + transport/vendor/ stay excluded.
+
+What CHECKED OUT in the grounding pass: the 5 enums (GateOutcome coordinator.h:39, Press button_feedback.h:16,
+State/Input/Action trigger_state_machine.h:15/18/21 — all header, no underlying type → all fire); the §4
+adaptation map (all SCREEN_* renderers, drawPromptBand, glyphs, the XPT2046 pressure read +
+debounce-latch kPressHi=220/kReleaseLo=90/kRelSamples=3, camCol = cams>=2?GREEN:RED with no amber); OQ-1(A)
+mirrors Victor's provisionVerify→CONFIRM_ID→identityYes/No exactly; the swappable-UI seam is real
+(app.h:6). Agent to fold all six flags into plan.md as resolved OQs/corrected claims, then implement.
+
+## LLAMAR "call lead" — Victor's lock-until-stop workflow (design decision 2026-06-25)
+
+Victor's proposed LLAMAR workflow: **LLAMAR locked while recording** (available only when stopped/idle);
+on press, the fob switches the radio (leave AP → join uplink → send the help signal → rebuild AP), then
+back. Alternative he floated: drop the button if switching is too slow — but Mo noted that would ALSO
+kill the god's-view telemetry plan (same network-switch).
+
+**DECISION: KEEP the button; Victor's lock-until-stop workflow is SOUND.** The uplink was disabled
+(`uplinkUp()`→`return false`, line 969) because tearing down the AP drops EVERY camera *while recording*.
+Lock-until-stop means nothing is recording → a brief AP teardown is recoverable (cameras auto-rejoin via
+`S99zfobjoin`). The constraint was never "never use the radio"; it's "never tear down the AP
+mid-recording." LLAMAR-when-idle respects it.
+
+**Guardrails (the foreseeable issues):**
+1. **UNCONDITIONAL AP-restore + timeout (critical).** The switch must leave-AP → try-uplink (N-sec
+   timeout) → send → **ALWAYS rebuild the AP (finally-semantics) even on uplink-join failure** →
+   success/fail toast. The fob must NEVER end with the AP down (same risk family as the provisioning
+   tether-gate). The real failure mode is the fob getting STRANDED (uplink not there, AP down), not
+   slowness.
+2. **Honest GO/NO-GO during camera re-associate** (~15–40s round-trip, dominated by uplink-join +
+   re-associate) — the camera-count shows NOT-GO until cams are back; LLAMAR stays locked/working through
+   it. Acceptable because the operator pressing LLAMAR is stopped/dealing-with-a-problem anyway.
+3. **LLAMAR is a §1.8 DELAYED BUTTON** — instant-ack/working/locked, settle on success/fail toast;
+   another ui-owned `DelayedButton` instance. Slots into F3 with no new machinery.
+
+**THE GOD'S-VIEW RESOLUTION (Mo's worry — resolves in our favor).** God's-view was ALWAYS planned as
+NEAR-REAL-TIME, flush-in-idle-gap (SPEC §1.4), NOT continuous-live. LLAMAR-when-idle is the SAME mechanism
+(switch during idle, do the network thing, switch back). The slow switch only sets the freshness
+GRANULARITY: idle-gap-flush works during REAL idle (breaks, between sessions, end-of-batch), NOT between
+rapid back-to-back takes (gaps too short for a 15–40s round-trip). So god's-view freshness = "updates at
+breaks" = what near-real-time means. The ONLY thing impossible on one radio is continuous telemetry
+*during* recording — and nothing needs it (near-real-time god's-view doesn't; LLAMAR doesn't). **NOT
+fucked — the architecture (§1.4) already anticipated exactly this; the LLAMAR conversation CONFIRMS the
+god's-view mechanism rather than killing it.** REFINEMENT: **throttle the idle-flush** (don't switch on
+every brief stop — too much camera churn at a 15–40s drop each; switch on a throttle / confirmed-long-idle
+/ meaningful state change).
+
+**HARDWARE OUT:** a SECOND RADIO (cheap ESP32 companion for the uplink) makes both LLAMAR and telemetry
+SEAMLESS (no switch delay, no camera drop) AND unblocks live-during-recording telemetry — the SAME Victor
+hardware conversation as the DS3231 clock ("things the fob can't do while hosting the AP with one radio").
+Bonus: whenever the fob switches to uplink (LLAMAR/idle-flush), it can opportunistically grab NTP — a free
+clock correction (doesn't replace DS3231 for during-recording time, but a bonus).
+
+**F3 + SEQUENCING:** F3 (mid-run) **RENDERS** the button + lock-while-recording + the delayed treatment +
+posts a "llamar requested" intent (UI is real + cheap). The actual network-switch is a SEPARATE
+**idle-uplink TRANSPORT task** — re-enable + harden Victor's disabled uplink-borrow (remove the `return
+false`), idle-GATED, with the timeout + unconditional AP-restore + throttle — which ALSO unblocks the
+god's-view idle-gap flush (same mechanism, one piece). It's SAFETY-CRITICAL (the mock must assert the AP
+is ALWAYS restored on an uplink-join failure), lives beside the F2 transport work, and serves LLAMAR +
+god's-view both. The running F3 annotation's "if LLAMAR needs network → stub/defer + flag" branch already
+yields the right F3 outcome (button present, network deferred), so NO need to interrupt the run — confirm
+on review the button is rendered+locked (not dropped). Victor-coordination: add the second-radio option to
+the same hardware sync as DS3231 + the live-telemetry uplink.
+
+## CORRECTION 2026-06-25 — single-radio idle-flush does NOT work for quick episodes (Mo caught this)
+
+My prior "throttle the idle-flush" framing was WRONG for the realistic collection pattern. Mo pushed:
+won't this throttle for quick episodes (30–90s)? Yes — and the throttle doesn't resolve it, it just
+picks which way you lose:
+- **Throttle down** → telemetry almost never flushes during active collection (no gap reliably exceeds
+  the ~15–40s switch, and even a long-enough gap gets eaten by the flush, delaying the next take). The
+  dashboard shows "last seen [last long break]" → an operator collecting for 2h straight looks OFFLINE.
+  Misleading, not just coarse.
+- **Don't throttle** → each flush costs ~15–40s cameras-unavailable. Once-per-episode ≈ HALVES
+  throughput; every-5-min ≈ 5–13% tax + leans on camera re-association being fast/reliable (the F2
+  ghost-STA/flap findings say it isn't).
+So the quick-episode cadence is exactly where single-radio idle-flush breaks. SPEC §1.4's "near-real-time,
+flush in idle gap" quietly assumed gaps longer than the switch — true for breaks/between-sessions, FALSE
+for active rapid collection. **LLAMAR is still fine** (rare, operator-initiated, they're stopped and
+waiting) — frequency+automation is what breaks telemetry, not the switch.
+
+**The free single-radio baseline (no harm):** piggyback a telemetry heartbeat on the **boot-time uplink**
+— the fob reboots at the 4–5×/day battery swaps (cameras already down then), so a brief uplink-on-boot to
+grab NTP AND push a heartbeat costs nothing extra → ~4–5 dashboard updates/day per operator. Coarse but
+honest ("who collected today / roughly how much"), useless for live. SAME mechanism as the OQ-3
+boot-NTP-before-AP clock option — one mechanism, two payoffs.
+
+**The real answer for live-during-collection = SECOND RADIO** (companion ESP32 over UART, or an LTE modem
+— clean for a mobile rig: cellular uplink, WiFi stays on the cameras). Continuous telemetry, zero
+throughput cost, seamless LLAMAR. Mo's question elevates this from "nice upgrade" to "the requirement for
+a useful live god's-view."
+
+**Reframed Victor hardware decision — ONE decision (what uplink does the fob get?), clock payoff + telemetry
+payoff, in tiers:**
+- **DS3231 only:** clock robust; telemetry nothing (god's-view = historical + coarse-at-boot).
+- **Boot-NTP-before-AP (single radio):** clock fresh at boot (drifts in long sessions) + free coarse
+  telemetry heartbeat at swaps. No new hardware.
+- **Second radio (companion ESP32 / LTE):** clock perfect (NTP anytime) + live telemetry + seamless
+  LLAMAR. Premium tier, solves all three.
+
+**The product question that decides it (Eric's):** does god's-view need LIVE status during active
+collection (→ second radio, justified because it also fixes the clock + LLAMAR), or is daily-ish operator
+status + the historical drill-down enough (→ free boot-flush on current hardware)? Either way the
+**HISTORICAL half** (last-10-episodes → video+metadata) is UNAFFECTED — never on this path; only the live
+telemetry strip carries the constraint. This supersedes the prior entry's "throttle the idle-flush"
+refinement.
+
+## DECISION 2026-06-25 (Mo) — DROP god's-view live camera telemetry for now; keep everything else
+
+Mo's product call: do NOT do the live camera telemetry on god's-view for now; keep everything else. This
+cleanly resolves the single-radio/second-radio/throttle tangle by cutting the one piece that depended on
+the radio-switch.
+
+**CUT (for now):** the fob-pushed live/near-real-time camera telemetry (battery, SD space, live
+recording-state), AND any fob telemetry-push machinery (live OR the coarse boot-heartbeat). Not building
+the uplink-switch-for-telemetry at all.
+
+**KEEP (everything else) — god's-view = the operator-pivoted HISTORICAL browser + QC surface, one unified
+ops console:**
+- The **operators list** — populated from the operational store (person/session: who exists, who's been
+  collecting), with each operator's **last-episode-landed timestamp** as the honest freshness signal
+  (free, derived from when episodes drain — NO telemetry needed). The "name + telemetry" of Eric's spec
+  becomes "name + last-episode freshness."
+- The full **drill-down**: operator → their last 10 episodes → video + metadata player (Hades render +
+  sidecar fields). Unchanged.
+- The **spot-check viewer** (§1.9) — unaffected.
+- The **IMU-QC red-border flagging** (qc_score → dashboard) + the **supervisor ground-truth** (labels.py)
+  — unaffected.
+Only loss: "who's active right this second." Last-episode timestamp covers "who's been collecting / roughly
+when" honestly.
+
+**Pleasant simplifications this produces:**
+- **The idle-uplink transport task is now LLAMAR-ONLY** — no throttle, no heartbeat, no flush-cadence
+  tuning. Just the on-demand lock-until-stop switch + the unconditional AP-restore. Smaller + safer.
+- **The second radio is no longer needed for god's-view** — drops out of the must-have list; becomes a
+  "someday if you ever want live telemetry" item, not a current ask.
+- **The clock decouples** — DS3231 stands on its own as the robust fix (never needed telemetry to justify
+  it; the boot-NTP "free heartbeat bonus" reasoning is moot now). The Victor hardware conversation shrinks
+  to: **DS3231 for the clock + single-radio lock-until-stop for LLAMAR. No second radio.**
+
+**Unchanged:** LLAMAR still ships (lock-until-stop). The historical half was always buildable and is now
+god's-view's freshness surface. **F3 is untouched** (F3 = the operator's fob CYD screen; god's-view = the
+supervisor's dashboard, a separate later console run).
+
+**Docs:** SPEC §1.10 needs a small update — the live-telemetry strip → explicitly DEFERRED (not building
+fob telemetry for now); the operators list → store-derived with last-episode freshness; richer live
+telemetry → a future second-radio item. **Fold into the pending docs pass** (now: §1.7 sidecar-model +
+§1.7 "fob NTP wallclock" + §1.8 no-queue + §1.10 live-telemetry-cut + CONTRACT §1.7). The pass is
+accumulating — worth doing soon, with or just after F3.
+
+## Run F3 ui/ — IMPLEMENTED + reviewed 2026-06-25 (CLEARED TO COMMIT/PR)
+
+F3 (ui/, the CYD touchscreen) came back strong; all six NOTE flags folded into plan.md (the plan-of-record)
++ implemented. All headline checks held. Gates: 75 pytest / ruff / mypy / lint-imports clean; 39/39 native
+(6 new test_ui); env:esp32 headless SUCCESS (ui/ guarded, NO TFT dep, links clean — OQ-5); env:cyd TFT-on
+SUCCESS (TFT_eSPI@2.5.43, 42.5% flash); clang-tidy NOW core/+transport/proto/ with 0 findings (5 enums
+cleared, ui/ excluded); clang-format clean; codegen drift 0. (Same benign uv-sync fresh-worktree bootstrap
+as F2.)
+
+**The six flags (all folded):** A — real CYD TFT config ported into [env:cyd] (deps + PANTHEON_HAS_TFT +
+colour-fix TFT_BGR+TFT_INVERSION_ON + pins). B — ui OWNS the DelayedButton, no core accessor for it. C —
+added `Coordinator::present_count()` (the only new core accessor). D — F2→F3 comments fixed. E — MESA
+re-entry + CONFIRM 45s timeout folded; GATE_UPLINK investigated → VESTIGIAL → DROPPED; LLAMAR KEPT (splash +
+local log, dashboard POST deferred to the idle-uplink task). F — tidy extended to core/ via TIDY_FILES +
+HeaderFilterRegex, 5 enums → `:std::uint8_t`, Makefile reconciled.
+
+**§1.8 faithful:** instant-ack = `press()`→render working→inline action→`complete()` (visual synchronous
+BEFORE the action — the no-queue truth); camCol exact (2/2 green, 0/2 & 1/2 red); **spam-safety preserved
+through the INPUT path** (UI lockout drops re-taps AND TriggerStateMachine never double-fires even if the
+lockout leaks — proven in test_ui). **SPEC §1.8 prose CORRECTED in this PR** (the no-queue correction) → so
+§1.8 is now HANDLED, removed from the pending docs pass.
+
+**Swappable-UI seam holds:** no ui/ file includes a transport/ header; core/ changed only by the enums +
+present_count() + comments. A new screen swaps ui/ against the same core guarantee.
+
+**Deviations (all sound):**
+- **present_count CACHING — correctness IMPROVEMENT, ACCEPTED.** The discovery task (core-0, lock owner)
+  computes present_count() and caches it; the UI reads the cache (Victor's g_connCount pattern, thread-safe
+  — avoids a cross-core unsynchronized read of deps_.presence). The accessor is still the source; the live
+  phantom-gate in trigger() stays authoritative (a stale cache can't cause a wrong trigger — at worst the
+  color lags one discovery cycle).
+- Take counter is ui-owned (core has none) — correct (presentation state).
+- **Mid-take cam-drop NOT shown until the take ends** (the cache is frozen during recording — F2's
+  discovery skips during a take). F3 renders faithfully, doesn't change transport. KNOWN UX GAP — the
+  operator can record a doomed take unaware one cam died; the authoritative one-sided-record catch is
+  downstream at INGEST (pair by bimanual_episode_id). REVISIT in the transport/one-sided-record work: since
+  L2 presence is a PASSIVE station-table read (no OSC), can it run during a take for an early mid-drop
+  warning? NOT an F3 blocker.
+- **OQ-1 "Operador #N" fallback — SANCTIONED.** No on-device number→name roster → CONFIRM_ID shows
+  "Operador #N", name resolves downstream. NOTE: this REDUCES CONFIRM_ID's mistype-protection (no name to
+  verify against — the operator just re-sees the number they typed). Fix = an on-device roster (number→name),
+  a PROVISIONING-CONSOLE item. Acceptable now; not yet working identity confirmation.
+- Two bilingual error strings clip at 34 chars — cosmetic, faithful to Victor's renderNumEntry.
+
+**COLOUR-FIX:** ported (TFT_BGR+TFT_INVERSION_ON, verbatim from Victor's PROVEN ini) — env:cyd builds, but
+"red/green renders correctly" is a BENCH step (can't be gate-verified); confirm at rig. High confidence.
+
+**MERGE: CLEARED to commit + open PR** (uncommitted on branch "Mzcassim/angkor"). **BRANCH NIT:** rename to
+lowercase **`mzcassim/eunomia-run-f3-ui`** to match F1/F2 (`mzcassim/eunomia-run-<f>-<name>`); the agent
+offered "agent/f3-ui" citing a CONTRIBUTING agent/<run> convention, but the F1/F2 precedent is
+`mzcassim/eunomia-run-…` — use that unless CONTRIBUTING genuinely mandates otherwise. Conditions: CI green
+incl. clang-tidy actually RUNNING (now core/+proto/, not skipped — F2's hard-fail-on-absent guard should
+hold); Conductor squash-merges; delete branch post-merge; **record the squash hash here.** Squash subject
+`[FEAT] Run F3 — coordinator/ui/ …` fine. **[F3 SQUASH HASH ON MAIN: PENDING]**
+
+**PENDING DOCS PASS (now MINUS §1.8, which F3 handles):** §1.7 sidecar-model + §1.7 "fob NTP wallclock" +
+§1.10 live-telemetry-cut + CONTRACT §1.7. Fold soon (its own pass, or with the next run).
+
+**With F3, the firmware coordinator is COMPLETE: contracts 0a–0d + F1 core/ + F2 transport/ + F3 ui/.** Next:
+the provisioning console (tether-gate + cameras.py telnet logic + the on-device roster that fixes OQ-1's
+CONFIRM_ID), the ops/QC console (god's-view historical drill-down [no live telemetry] + spot-check + IMU-QC
+red-border + supervisor ground-truth), the idle-uplink transport task (LLAMAR-only network-switch), and
+ingest (v2→v1 sidecar reconciliation + dual-signal-join + the one-sided-record QC flag).
+
+## Daily hardware-setup flow ("today's setup: X3 camera, gripper version V") — where it lives (Mo asked) 2026-06-25
+
+Mo: "I don't see the flow for daily hardware setup." It IS designed (B-9 capture-stack provenance); not
+visible for two reasons + has real gaps to close. Precise state:
+
+- **MODELED (B-9 + the kit registry).** The `capture_stack` entity = modality + camera model + camera fw +
+  fob board + fob fw + **UMI GRIPPER HW VERSION** + SD + Eunomia sw, referenced by `capture_stack_id`. The
+  un-sensable provisioning-time parts (camera model, gripper version, SD, mount) live in the **kit
+  REGISTRY** against the kit/serials, resolved per-episode via `kit_id` on the card (NOT stamped on every
+  card). The sidecar carries the per-episode/sensable facts (kit_id, camera_serial, camera_firmware,
+  fob_build, kit_version, calibration_id). **So the gripper version IS captured — registry-side, via
+  kit_id.**
+- **THE DAILY FLOW IS DESIGNED (B-9):** the fob auto-assembles the sensable parts at session start; a
+  **start-of-day CONSOLE prefills the resolved stack and the SUPERVISOR confirms it daily — explicitly to
+  catch un-sensable changes like a GRIPPER SWAP.** Robust-by-default (record correct even if the confirm is
+  skipped); the daily confirm = the accountability/override. THAT is Mo's "this is today's setup" step.
+- **WHY MO DOESN'T SEE IT:** (a) the FLOW NARRATIVE is only in the register (B-9) — the SPEC has the
+  capture_stack ENTITY (§2.2/§422) but NOT the daily-confirm-flow narrative → **SURFACE IN SPEC** (add to
+  the pending docs pass). (b) The console isn't BUILT — a later run (ops/provisioning console family); the
+  coordinator (F1–F3) is the operator's fob, this is a separate supervisor surface.
+- **REAL GAPS/ACTIONS (not just visibility):**
+  1. **PROVISIONING SCOPE NOTE:** the current fleet registry (fleet.yaml: insv_serial/ble_mac/calibration/
+     serial-crosswalk) does NOT capture the gripper hw version / mount / SD / camera model — it's
+     camera-identity-focused. The **provisioning console must capture the FULL rig config** (gripper hw
+     version + mount + SD + camera model) into the registry, else the daily-confirm + capture_stack
+     resolution have nothing to prefill for the gripper. Extend provisioning beyond camera-identity.
+  2. **FOLD-IN RECONCILE:** B-9 says "the fob assembles capture_stack_id at session start," but the BUILT
+     sidecar (§2.2) carries the COMPONENTS (camera_firmware/fob_build/kit_version/calibration_id) + kit_id,
+     NOT a capture_stack_id. So in practice capture_stack_id is **RESOLVED AT INGEST** (join the episode
+     components + the kit registry) — the more robust design (card = raw facts, ingest = resolve id).
+     Reconcile B-9's wording; the resolution + the daily-confirm UI land at INGEST + the console, NOT the
+     coordinator.
+  3. **FLOW OWNER:** supervisor-at-start-of-day (a console), NOT the operator at the fob — sensible
+     (hardware config is a setup concern, not a per-take action), robust-by-default. Flagged for Mo: say if
+     he wants it at the fob / operator-affirmed instead or in addition.
+- **CALIBRATION (C-11) is the linked piece:** calibration_id nullable on the episode; scope =
+  none|fleet|per_camera (accommodated, Eric testing via SLAM error); currently scope=none (pilot
+  uncalibrated). "Today's setup" calibration is modeled; its WORLD is Eric's open call.
+
+**NONE of this is F3** (the coordinator). It lands across: the SPEC docs pass (surface the flow), the
+**provisioning console** (capture the gripper + the full rig config), and **ingest + the ops console**
+(resolve capture_stack_id + the daily-confirm UI). The gripper version IS modeled — Mo's instinct caught a
+SPEC-visibility gap + a not-built console + the provisioning-must-capture-the-gripper scope note, not a
+missing design.
+
+## Task-setup flow ("today's tasks": catalog + station→task assignment) — design + model decision 2026-06-25
+
+Mo wants a start-of-day task-setup flow: replace Eric's hardcoded task/prompt/id list with a STORED
+catalog; the supervisor decides #tables, sees a VISUAL LAYOUT, adjusts, numbers tables, assigns a
+task/prompt to each station; the operator's station_id at the fob then resolves the task. Mo asked:
+possible? + be intentional about failure modes (esp. 2 supervisors picking the same table# → intertwined
+backend) + which model: (i) deterministic fixed task↔table# never-change, or (ii) permanent table# +
+supervisor links task daily.
+
+**GROUNDING (found in x3-capture-kit): the station→task model IS the existing architecture, currently
+config-driven/hardcoded — Mo is NOT missing anything.**
+- `config/stations.yaml` (2026-06-10 era; refactored/moved since — NOT on main now) = station# → task_id;
+  "operator types e.g. 1000 → gets a task prompt."
+- The task/prompt is NAND-staged: `/pref/pantheon_current_task.env` carries TASK_ID/TASK_NAME/PROMPT/
+  ROTATION_ID/STATION_ID (task fields ONLY, never identity), staged by the coordinator in a cam-reach
+  window, sourced by discardd, stamped on every episode (task_source="nand_staged"); survives SD/battery
+  swaps.
+- Eric supplies a STATIC table#→prompt chart ("static table# -> prompt chart (Eric supplies), stamped
+  with station").
+- The sidecar carries station_id, site_id, task_id, task_name, prompt, rotation_id (fields exist).
+- METADATA_SCHEMA: "station_id | the mesa" → the fob MESA screen = station entry.
+→ Mo's flow is literally how it works today (station#→task via stations.yaml + NAND staging), just
+HARDCODED. His evolution = make it DYNAMIC + supervisor-managed + collision-safe.
+
+**RECOMMENDED MODEL — (ii)-refined (Mo's second instinct; REJECT (i)):**
+- **Task/prompt CATALOG: stored, global, versioned.** task_id stable + GLOBAL (fold=Fold Towel=its prompt
+  everywhere). Replaces Eric's static chart. `rotation_id` EXISTS → a task has multiple PROMPT VARIANTS
+  that rotate; the catalog is task→{prompts}+rotation, not just task→one-prompt. VERSIONED: editing a
+  prompt = a new version; episodes PIN the version (past episodes don't retroactively change).
+- **STATIONS: REGISTERED, stable, globally-unique — NOT free-chosen (THE COLLISION FIX).** A station is a
+  permanent physical identity with a stable id; global uniqueness via **site_id + station#** (site_id
+  already a sidecar field → SF-3 ≠ MX-3). The supervisor does NOT type a free number — picks from the
+  site's REGISTERED stations (the visual layout) or registers a new one (allocates the next free #). →
+  two supervisors CAN'T pick the same #; #s are allocated per-site, the layout shows what's taken, the
+  backend key is site_id+station# (never a bare typed number).
+- **TASK→STATION ASSIGNMENT: a time-ranged, append-only EVENT** ("station S assigned task T effective
+  from time t"). Supervisor sets at start-of-day (Mo's "links task every morning"); a mid-day change is a
+  new event → granular "what was this station doing at any moment."
+- **RESOLUTION:** episode records station# + site_id + timestamp; task resolves via the assignment in
+  effect at the episode's start time (ingest authoritative). The fob DISPLAYS the resolved prompt for the
+  entered station (operator instruction + error-check) → the day's assignment is staged to the fob,
+  reusing the existing NAND task-staging (pantheon_current_task.env).
+
+**REJECT (i) fixed task↔table# never-change:** too RIGID (tasks rotate across stations to balance data;
+can't have 5 tables on the same task; can't repurpose a table) AND doesn't solve the collision (two sites
+could both call their fold-table "3"). (ii) gives granularity without rigidity.
+
+**FAILURE MODES (Mo asked to be intentional):**
+1. **Cross-supervisor/site number collision (Mo's):** FIXED — registration + site-scoping (site_id+station#
+   key) + the visual layout surfacing taken numbers. #s allocated, not typed.
+2. **Temporal ambiguity (table 3 = X yesterday, Y today):** FIXED — time-ranged assignment + episode
+   timestamp; resolve via the assignment in effect then.
+3. **Mid-day reassignment:** the time-ranged event keeps the RECORD correct (ingest resolves by
+   timestamp), BUT the fob shows a STALE prompt until re-staged (pushing mid-day = the uplink problem) →
+   the operator could demonstrate the wrong task. MITIGATION: treat mid-day reassignment as a DELIBERATE
+   re-setup (re-stage the station to the fob + operator re-confirms), not a silent backend change. The one
+   real edge.
+4. **Operator types wrong station#:** the fob shows the resolved task/prompt ("Station 3: fold the
+   towel") → operator catches it (the CONFIRM_ID pattern). Requires the mapping on the fob (staged).
+5. **Station not yet assigned (operator beats the supervisor):** the fob shows "no task for station N —
+   ask supervisor" (NO-GO), never a silent null task.
+6. **Catalog edit after episodes referenced a task:** episode pins task_id + the prompt VERSION; editing
+   the catalog doesn't change past episodes (the task-menu-version concern).
+7. **Station decommissioned:** retire the id, NEVER reuse (reuse re-intertwines history). Registered
+   stations are permanent.
+
+**WHERE IT LIVES / SEQUENCING:**
+- SAME start-of-day supervisor session as the B-9 hardware-config confirm — UNIFY: one start-of-day
+  console = "today's setup: these stations (visual layout), these task assignments, this
+  hardware/calibration."
+- CONTRACT/operational ADDITIONS: a **station registry** entity (registered, site-unique, retire-not-reuse
+  — station is NOT a first-class entity today, just a field) + a **task→station assignment** event
+  (time-ranged, append-only) + **versioning + rotation** on the task catalog. The sidecar fields
+  (station_id/site_id/task_id/prompt/rotation_id) already exist; the entities to MANAGE them are new.
+- DELIVERY to the fob reuses the existing NAND task-staging (the coordinator already stages task fields);
+  the dynamic source (catalog+assignment) is the new part.
+- NOT F3: the fob MESA = station entry, already there + COMPATIBLE; only the resolution source changes
+  (hardcoded stations.yaml → dynamic supervisor assignment, staged). No F3 rework.
+
+So task-setup + the B-9 hardware-config confirm + operator sign-in CONVERGE into ONE start-of-day
+supervisor/operator setup flow — built in the ops/provisioning console family, against the contract (with
+the catalog + station-registry + assignment additions). LATER run. Strengthens the case that the
+provisioning/ops console is the natural next pick after the coordinator.
+
+## Boot-uplink + provision profile + per-kit hardware config + god's-view metadata — design batch 2026-06-25 (Mo+team)
+
+Five threads from Mo; most ALIGN with B-8 (event-sourcing) + B-9 (capture-stack) and resolve the mid-day
+task-staleness edge. Captured + the genuine decisions flagged.
+
+**1. BOOT-UPLINK (time + task mapping) — DECISION: every fob power cycle, connect to office/site wifi
+FIRST → pull NTP (time) + the refreshed task↔table mapping → THEN host the camera AP.** Cleanest uplink
+case: the AP isn't up yet at boot, so NO camera disruption (cameras associate AFTER the sync). Bounds
+task-mapping staleness to the swap cadence (4–5×/day) → a mid-day reassignment is auto-picked-up at the
+next swap; only a can't-wait change needs a deliberate re-setup or a power-cycle. Cost ~30–60s at boot
+(wifi assoc + NTP + mapping fetch + bring up AP) → show a "syncing…" screen. Single radio, at boot — NO
+second radio (consistent with the live-telemetry cut). Reuses the LLAMAR transport capability, minus the
+teardown (AP not up yet).
+  • **CLOCK FORK (clarifying Mo's "pull time from an RTC somehow"): NTP ≠ RTC.** NTP = the network pull at
+    boot (no extra hw). DS3231 = an onboard ~$1 chip that HOLDS time across power cycles without network.
+    Complementary. **Boot-NTP alone** works IF site wifi is reachable at every boot (clock drifts ~seconds
+    over a few hours — fine); risk = a no-wifi boot has no time. **+DS3231** removes that risk (time always
+    available; NTP-at-boot corrects it). **RECOMMEND both** — the DS3231 is cheap insurance; it's the one
+    OPTIONAL piece (skip only if site wifi at EVERY boot is guaranteed). This UPDATES the earlier
+    "clock = just DS3231" → now **boot-NTP + DS3231 backstop** (still no second radio).
+  • **GRACEFUL FALLBACK (requirement):** if wifi is unreachable at boot, do NOT block collection — use the
+    NAND-cached mapping (flagged stale) + RTC-or-last-known time (flagged). A wifi outage degrades, not
+    halts.
+
+**2. PROVISION PROFILE + VALIDATION FLOW + SEAMLESS SWAP.**
+  • **Provision profile = the per-unit registry record.** Per camera: real **body serial** (physical,
+    immutable, READ from the device, never a label) + assigned **camera_id** (logical, GLOBALLY UNIQUE,
+    UNCHANGING) + side + mount + wifi config (the body-serial↔camera_id crosswalk). Per fob: fob_id, board,
+    firmware. Per kit: grouping + the hardware config (thread 3).
+  • **camera_id "universally different and unchanging" → ALLOCATION SCHEME guaranteeing global uniqueness**
+    (registry-allocated, like the station #s — NOT free-typed) + **immutability, NO REUSE** (a swapped-out
+    camera_id retires FOREVER; the replacement gets a NEW id — that's what lets episodes resolve to the
+    right physical camera across a swap). [DECISION to confirm: camera_id registry-allocated + never-reused.]
+  • **Provisioning VALIDATION flow:** write the identity, then READ IT BACK + confirm (CAMERA_ID/SIDE/KIT_ID
+    correct, real serial matches expected, camera reachable + recording-capable), flag any mismatch. =
+    cameras.py write + a verification step.
+  • **SEAMLESS CAMERA SWAP (event-sourced, B-8):** pull kit_id from the fob → timestamped "decommission"
+    event for the outgoing camera (profile retires) → provision the replacement into the same role
+    (left-of-kit_042, NEW camera_id) → the fob's kit_id is unchanged (operator notices nothing); history
+    preserved (episodes resolve to the right physical camera by camera_id + time).
+
+**3. PER-KIT HARDWARE CONFIG (gripper/camera/firmware versions) — CONFIRMS + sharpens B-9.** Per-KIT,
+recorded at PROVISIONING, event-sourced + TIMESTAMPED so you reconstruct "kit 42 ran gripper v2 from date
+X, v3 from Y." = B-9's capture-stack tied to the kit, made event-sourced via B-8. NEW piece: **a
+lightweight "update kit hardware config" flow SEPARATE from firmware reprovision** — swapping a gripper
+doesn't reflash, but must emit a timestamped "gripper changed" event so the config stays truthful. So:
+the config-update flow + provisioning = where config is SET/CHANGED (event-sourced source of truth); the
+B-9 daily supervisor confirm = the ACCOUNTABILITY BACKSTOP (catches a swap someone forgot to record).
+Video-based validation flag (detect a config mismatch from footage) = DEFER (speculative; only if feasible
++ worth it — Mo's call to spec later).
+
+**4. GOD'S-VIEW METADATA PANEL — yes, trivially.** The episode-detail panel (video left, metadata right)
+shows the resolved provenance: kit, gripper version, camera/firmware, calibration + task/prompt + QC
+flags. All resolvable from kit_id + timestamp against the registry (the capture-stack at that episode's
+time). Part of the already-buildable historical half — just include the capture-stack provenance.
+
+**WHERE IT LANDS (none of it is F3, which is merging):**
+- **Firmware capability:** the BOOT-UPLINK (wifi → NTP + mapping → AP, + graceful fallback) = the
+  idle-uplink transport task (now also boot-uplink) + the DS3231 (Victor's hardware).
+- **Provisioning console:** the profile, the validation flow, seamless swap, the per-kit config + the
+  config-update flow.
+- **Ops console:** the god's-view metadata panel.
+- **Contract pass:** new operational entities — provision-profile/unit-registry, event-sourced
+  hardware-config history, + (from the task-setup thread) the station registry + task→station assignment +
+  catalog versioning. The sidecar fields largely exist; the entities to MANAGE + the event history are new.
+- **OPEN DECISIONS for Mo:** (a) DS3231 in/out (recommend in unless site wifi at every boot guaranteed);
+  (b) confirm camera_id registry-allocated + never-reused.
+
+Reinforces: the **provisioning + ops consoles + a contract pass** are the next big chunks after the
+coordinator, and the start-of-day setup (hardware config + task assignment + sign-in) + provisioning
+(profiles + validation + swap) are the two console surfaces. The boot-uplink is a firmware capability that
+can run in parallel.
+
+## RTC deferred + F3 merge-ready + flows.html fold-in 2026-06-25
+
+**RTC DEFERRED (Mo): "treat as if we do NOT have these for now."** DS3231 RTCs won't arrive for a while.
+SUPERSEDES the earlier "boot-NTP + DS3231 backstop (recommend in)": the clock is now **boot-NTP ONLY**.
+Consequence: a no-wifi-at-boot OR clock drift relies ENTIRELY on the loud-not-silent flagging
+(recording_suspect / no_wallclock) — flagging is load-bearing, not a backstop to a backstop. DS3231 remains
+the eventual fix WHEN it arrives. (NTP ≠ RTC: NTP = the boot-time network pull; the DS3231 was the onboard
+holdover, now unavailable.) flows.html OPEN-CLOCK already written this way ("no RTC yet, boot-NTP only,
+flagged").
+
+**F3 / PR #8 — MERGE-READY (not yet merged; squash hash PENDING).** PR #8, branch
+`mzcassim/eunomia-run-f3-ui` (lowercase, F1/F2 convention), single commit `ec2fd89`, squash subject
+"[FEAT] Run F3 — coordinator/ui/: the CYD touchscreen rendering core state (env:cyd TFT-on + tidy
+extended to core/)". Both CI jobs green: cpp (3m4s: native + esp32 headless + cyd TFT-on + clang-tidy),
+gates (31s: 5 Python gates + codegen drift). ⭐ **clang-tidy VERIFIED RUN on core/ + transport/proto/** (the
+key concern): `make gates-cpp-tidy` echoed the scope string, processed all 11 TUs ([1–6] the six core .cpp
+incl. coordinator/trigger_state_machine/button_feedback where the 5 enums live, [7–11] the five proto
+.cpp), 110 suppressed (all non-user) → 0 user findings, NOT skipped. mergeable CLEAN, 0 behind main, zero
+unintended drift (contracts unchanged, transport/vendor/ excluded, core/ touched only by the 5-enum fix +
+present_count() + F2→F3 comments). Branch-case churn corrected (capital Mzcassim/ pushed first → lowercase
+re-pushed, PR #7 closed, #8 recreated, capital remote branch deleted; a stale orphaned check-run briefly
+held #8 UNSTABLE → close+reopen fired one fresh authoritative run → CLEAN). plan.md + the SPEC §1.8
+correction + the CI scope strings all landed in the PR. → squash-merge (external) → Mo sends the hash → I
+record it, closing the coordinator lineage a17ba20→201c0d5→cc5c40f→d07490a→cc20e93→a0ba39c→F3.
+
+**PROCESS NOTE (Mo's feedback): do NOT refer to "Conductor" in a prompt to the agent — confusing (the
+agent runs IN Conductor).** In future agent-facing prompts: say "report and stop; do not merge" and leave
+the merge as an external step, WITHOUT naming Conductor. (Updates the earlier merge-convention note.)
+
+**flows.html FOLD-IN — this session's new flows added/updated + JS syntax-verified (node --check on all 3
+script blocks = OK; backup /tmp/flows.bak).** 9 edits: added 7 REFS (OPEN-CLOCK, EDGE-BOOTNOWIFI,
+OPEN-MIDDAY, OPEN-CAMID, OPEN-STATIONREG, OPEN-CFGVALID, EDGE-LIVETELEM); ADDED steps F-CAP-00 (power-on /
+boot sync), F-CAP-12 (call lead / LLAMAR), F-OPS-05 (start-of-day supervisor setup), F-OPS-06 (god's-view
+drill-down), F-OPS-07 (QC review: IMU red-border + ground truth), F-PROV-10 (per-kit hardware config +
+update flow); UPDATED F-CAP-02 (task selection → station entry → task resolution, dynamic assignment +
+NO-GO + collision-safe station registry), F-CAP-10 (telemetry flush → coarse boot/idle flush, live
+telemetry CUT), F-OPS-02 (live state → last-seen freshness, cut), F-PROC-05 (quality eval → + IMU
+heuristics → qc_sus/red-border + human_label), F-PROV-04 (provisioning → + read real serial + validate
+readback + store provision profile [body serial ↔ camera_id unique/unchanging + side/mount/wifi/fob_id]),
+F-PROV-07 (repair/swap → seamless swap via profile: outgoing camera_id retires, new id at same kit_id,
+resolve by camera_id + time).
+
+**FLOWS THAT STILL NEED MORE DETAILED SPECCING (Mo asked):** the new console/supervisor steps use M.generic
+placeholder panels, not bespoke UI — flagged for later detailed design: (1) F-OPS-05 start-of-day setup
+console UI (the station visual-layout editor + registration + task-assignment + the per-kit hardware
+confirm — the most complex new surface); (2) F-OPS-06 god's-view dashboard layout (the 3-level
+operator→episodes→video drill-down + the metadata panel contents); (3) F-OPS-07 IMU-QC red-border + the
+ground-truth good/bad UI; (4) F-PROV-04/F-PROV-10 the provision-profile schema + the validation/readback
+flow + the config-update flow (real fields/states); (5) F-CAP-00 boot-sync + F-CAP-12 LLAMAR — represented
+with placeholder fob panels, but their actual CYD screens + the boot-uplink fallback states + the LLAMAR
+network-switch need bespoke mockups; (6) the station-registry/collision mechanics (site_id+station#
+allocation, the layout "what's taken" view) — OPEN-STATIONREG. These are all LATER-run console/firmware
+work, not blockers; the flows now REPRESENT them so they're discoverable + on the map.
+
+## RTC DEFERRED — "treat as if we do NOT have these for now" (Mo) 2026-06-25
+
+SUPERSEDES the "+DS3231 backstop (recommend both)" recommendation from the boot-uplink batch above. The
+DS3231 RTCs won't arrive for some time → **treat the system as having NO RTC.** So the clock is **boot-NTP
+ONLY** (NTP = the network pull when the fob joins office/site wifi at boot; the DS3231 was the onboard
+backstop, now unavailable).
+- **Consequence:** a no-wifi-at-boot OR clock drift during a session now relies ENTIRELY on the
+  loud-not-silent flagging (recording_suspect / no_wallclock). The boot graceful fallback (cached NAND
+  mapping flagged stale + last-known/flagged time, never halt) becomes the ONLY backstop — there is no
+  hardware holdover.
+- The boot-uplink (time + task-mapping pull, single radio, before hosting the AP) is UNCHANGED — it's the
+  time source. Only the DS3231 hardware backstop is removed (deferred).
+- When DS3231s eventually arrive, revisit (the boot-NTP + DS3231-backstop design from the batch above is
+  the eventual target); for now, boot-NTP only.
+
+## F3 ui/ — MERGE-READY, handed off (PR #8) 2026-06-25
+
+Conductor handoff received. PR #8 (https://github.com/Pantheon-Industries-Inc/Eunomia/pull/8), branch
+`mzcassim/eunomia-run-f3-ui` → main (lowercase, F1/F2 convention). Squash subject: `[FEAT] Run F3 —
+coordinator/ui/: the CYD touchscreen rendering core state (env:cyd TFT-on + tidy extended to core/)`.
+Single squashable commit `ec2fd89`.
+- **Both jobs green:** cpp pass 3m4s (native + esp32 headless + cyd TFT-on + clang-tidy), gates pass 31s
+  (5 Python gates + codegen drift).
+- **⭐ clang-tidy verified RUN on core/ + proto/ (NOT skipped):** `make gates-cpp-tidy` (CI=true, pinned
+  clang-tidy 22.1.7) echoed "clang-tidy (blocking, scoped: core/ + transport/proto/)", processed all 11
+  TUs — [1/11]–[6/11] the six core/ .cpps (incl. coordinator.cpp, trigger_state_machine.cpp,
+  button_feedback.cpp where the 5 enums live) + [7/11]–[11/11] the five transport/proto/ .cpps — "Suppressed
+  110 warnings (110 in non-user code)" → 0 user findings. The extended blocking scope is real + green.
+- **Merge-readiness:** mergeable MERGEABLE, mergeStateStatus CLEAN, 0 behind origin/main, single commit,
+  zero drift (contracts/ unchanged [drift gate 0], transport/vendor/ excluded, core/ touched only by the
+  5-enum underlying-type fix + present_count() + the F2→F3 comments — reviewer-confirmed).
+- **Process gotcha (corrected):** first pushed as `Mzcassim/…` (capital — macOS case-insensitive FS made
+  local refs look capital; real F1/F2 remotes are lowercase). Corrected: pushed lowercase, recreated as
+  PR #8, closed the wrong PR #7, deleted the capital remote branch. A stale orphaned check-run briefly held
+  #8 UNSTABLE; close+reopen fired one fresh authoritative run (28189822131, success) → CLEAN. Agent
+  recorded the gotcha + the `uv sync --all-packages` fresh-worktree bootstrap to its memory.
+- plan.md, the SPEC §1.8 correction, and the CI scope strings all landed in this PR.
+- **STATUS: merge-ready; the squash-merge + post-merge remote-branch delete is the external step.** Await
+  the squash hash on main to close the coordinator lineage:
+  a17ba20 → 201c0d5 → cc5c40f → d07490a → cc20e93 → a0ba39c → [F3 hash pending].
+
+## SD-flash / rootkit preservation — ingest must NOT strip the cards (Mo) 2026-06-25 [verified in x3-capture-kit]
+
+Mo: "ensure ingest does not strip the SD cards of the flash they need (we flash all SDs for daemons that
+do important things)." VERIFIED — confirmed + the failure mode is real:
+- **The cards are mass-flashed with a ROOTKIT** (`oncam/install_sd_rootkit.sh`): creates `PANTHEON/` +
+  installs `bootup.sh`, `discardd` (also as `pantheon_x3_agent.sh`), generic `PANTHEON/config.env`,
+  `card_ready.json`, `fleet_version.txt`. The stock X3 firmware **auto-runs `bootup.sh` from the SD root AS
+  ROOT at boot** (no per-cam jailbreak), which launches discardd. discardd = the load-bearing on-cam agent:
+  writes the per-episode `*.pantheon.json` sidecars (Eric's ingest input) + the `PANTHEON/camera.json`
+  ledger (kit/side for Layer-0 routing) + (unverified) mode-lock/thermal/instant-delete.
+- **THE FAILURE MODE:** `bootup.sh` REFUSES to run the agent unless `PANTHEON/card_ready.json` is present
+  ("protects against an operator inserting a random / wiped / off-the-shelf SD"). So a wiped/reformatted
+  card silently reverts the camera to STOCK behavior — no sidecars, no settings-lock, no instant-delete =
+  broken capture, and the data is unattributable.
+- **Identity is DELIBERATELY NOT on the SD** (LESSONS #9) — it's in NAND. The SD flash is GENERIC
+  (mass-flash, one identical image to every card); the only per-camera step is the one-time NAND identity
+  burn. So the rootkit is identical across cards and re-flashable, BUT see the firmware caveat.
+- **What the predecessor Layer 0 (Victor, styx-local-ingest.sh) does:** whole-card rsync that PRESERVES
+  the DCIM tree + the `*.pantheon.json` sidecars + the `PANTHEON/` ledger → atomic `.tmp→final` promote →
+  verify → **then "wipe card"** (Layer 0's stated responsibility: "mount SD, route, atomic-promote, verify,
+  wipe card"). **The contract does NOT disambiguate "wipe" = clear-footage-only vs full-reformat.** The
+  mass-flash "deployment is cheap" framing suggests a full-wipe+re-flash is tolerated there.
+
+**CONSTRAINT for the Eunomia ingest/drain run (the real ask):**
+1. **MIRROR everything verified BEFORE touching the card** — DCIM + `*.pantheon.json` sidecars + the
+   `PANTHEON/` ledger (the on-card `camera.json` kit/side is load-bearing Layer-0 ROUTING; the sidecars are
+   the metadata-ingest input). The predecessor already preserves all three in the rsync — match that.
+2. **The card-clear MUST guarantee the card returns PROVISIONED.** Either (a) clear ONLY the footage (DCIM)
+   and PRESERVE the rootkit (`bootup.sh`/`discardd`/`pantheon_x3_agent.sh`/`config.env`/`card_ready.json`/
+   `fleet_version.txt`), OR (b) full-wipe then RE-FLASH the mass-flash image. **NEVER leave a
+   wiped-unprovisioned card** — `bootup.sh`'s `card_ready.json` guard refuses it → broken capture.
+   **RECOMMEND (a) clear-footage-only** (preserve the rootkit): no re-flash step, and it sidesteps the
+   firmware-version re-root fragility (next point).
+3. **Firmware-version caveat (carry to Victor/ops):** auto-root is X3-v1.1.6-SPECIFIC — the contract calls
+   the per-firmware (not per-camera) compatibility "the real fragility." A full-wipe+re-flash path depends
+   on the whole fleet being on a compatible firmware to re-root from one image; **clear-footage-only avoids
+   the re-root entirely** (the rootkit was never removed).
+4. **The front `_00_` lens drop is NOT a card op:** `DELETE_FRONT_AFTER_KEEP=0` keeps the front lens
+   on-card so the IMU survives; ingest extracts the IMU then drops the front lens FROM THE MIRRORED COPY in
+   staging — legitimate footage processing, never touches the card's rootkit.
+
+WHERE IT LANDS: the Eunomia **ingest/drain** run (the Layer-0-equivalent card-handling) — make the
+card-clear policy EXPLICIT (clear-footage-only, preserve rootkit) rather than inheriting an ambiguous
+"wipe card." Flows.html DRN area gets a card-clear/return-to-service step. NOT F3.
+
+## Post-F3 sequencing — LOCKED (Mo) 2026-06-25
+
+After F3 (coordinator complete), the remaining work + order, both calls confirmed by Mo:
+- **(1) Contract pass FIRST** — the shared spine; every console + ingest builds against it. Cheaper to
+  design the multi-consumer entities once, up front, than to let the first console define them; the
+  project has run contract-first the whole way (0a–0d before firmware). = **Run 0e** (operational-model
+  extensions + docs fold-in); plan-only prompt drafted (`run0e_contract_prompt.md`).
+- **(2) Then the provisioning console** — the most loose threads converge there, it's UPSTREAM (creates
+  profiles, registers stations, seeds the catalog the setup console assigns from), and it carries the
+  CONFIRM_ID roster fix (a known soft spot in what F3 shipped). Its FIRST run is scoped to the identity
+  foundation (profile + validation + camera_id registry); swap + rig-config + station/catalog are
+  follow-ons.
+- Then: the **start-of-day setup console** (station layout + task assignment + daily hardware-config
+  confirm), **ingest** (v2→v1 reconciliation + dual-signal join + one-sided-record catch + capture_stack
+  resolution + card-clear), the **ops console** (god's-view drill-down + spot-check + IMU-QC + ground-truth).
+- **Boot-uplink firmware runs IN PARALLEL** — a separate firmware stream; doesn't need the contract pass;
+  gated on Victor's uplink-borrow + the field-clock conversation anyway.
+- **The two consoles stay SEPARATE, split by cadence:** provisioning = build-time/occasional; setup =
+  daily; ops = continuous. The per-kit hardware config is the clean test of the split — it's a contract
+  entity (the event-sourced history) that provisioning CREATES and setup CONFIRMS: same entity, different
+  operations, no duplication. Works only because the contract OWNS the entity → contract first.
+- Mo: "build all of this asap."
+
+**Run 0e scope (the contract pass):** station registry (site_id+station# unique, registered,
+retire-not-reuse); task catalog versioning + prompt variants + rotation (episodes pin the version);
+time-ranged append-only task→station assignment (resolve by site_id+station#+timestamp); provision profile
+on hardware_unit (body_serial ↔ camera_id [registry-allocated, unique, unchanging, retire-not-reuse] +
+side/mount/wifi/fob; fob profile); event-sourced hardware-config history + capture_stack (resolved AT
+INGEST from kit_id+components+timestamp — NOT a forced sidecar capture_stack_id; reconcile B-9 wording).
+[REVISED below — docs fold-in DROPPED; 0e is pure contract code.] Additive +
+non-breaking to the firmware-facing wire types. PLAN-ONLY first.
+
+## F3 MERGED + docs strategy + Run 0e revised 2026-06-25
+
+**F3 MERGED.** PR #8 squash-merged as `c7638cd` (2026-06-25T20:29:19Z), now top of origin/main above F2;
+remote branch deleted. **Coordinator lineage CLOSED:**
+a17ba20 (0a) → 201c0d5 (0b) → cc5c40f (0c) → d07490a (0d) → cc20e93 (F1 core) → a0ba39c (F2 transport)
+→ **c7638cd (F3 ui)**. The firmware coordinator is complete: contracts 0a–0d + F1 core + F2 transport +
+F3 ui (render_state/touch/screens/flow + test_ui), all six NOTE flags, the SPEC §1.8 no-queue correction,
+the clang-tidy scope extension to core/+proto/ (CI-verified RAN, not skipped).
+- **F3 carry-forwards (open, tracked):** (1) the CONFIRM_ID roster→name resolution (the "Operador #N"
+  fallback; an on-device number→name roster) — a PROVISIONING-CONSOLE item; (2) the "can passive L2
+  presence run DURING a take for an early one-sided-record warning?" question — PARKED for the later
+  transport / one-sided-record work (the authoritative one-sided catch stays at ingest).
+- **Register bookkeeping NOTE:** the F3 merge + these carry-forwards are captured HERE, in the register Mo
+  maintains + pushes (= repo `docs/DECISION_REGISTER.md`). Mo should push THIS register rather than have
+  the agent draft a separate `[DOCS] Register F3 merge` commit editing the repo copy — two writers on
+  `docs/DECISION_REGISTER.md` would fork it. (If a separate repo `BUILD_PLAN.md` is agent-maintained,
+  that's the agent's to update — the register is Mo's single canonical copy.)
+
+**DOCS STRATEGY — SPEC/CONTRACT deprioritized (Mo: "the docs pushes are lowkey annoying, are they
+necessary").** Honest answer: mostly NO. The system has FOUR overlapping representations — the REGISTER
+(decisions / why), flows.html (the visual flow map), the contracts/ CODE (the actual contract that
+consoles + ingest build against), and SPEC.md / CONTRACT.md (a narrative restatement). The first three are
+each load-bearing + non-redundant; SPEC/CONTRACT mostly RESTATE them — that duplication is the maintenance
+tax and the thing that drifts. Decision:
+- The per-decision "fold every new flow into SPEC prose" obligation is **DROPPED.** flows.html + the
+  register are the live flow/decision artifacts.
+- SPEC/CONTRACT get a **deliberate refresh only when there's a READER who needs them** (onboarding a new
+  hire, an external handoff) — NOT per-decision / per-run.
+- The few **actively-wrong load-bearing lines stay FLAGGED here for a someday 5-minute one-off fix** (NOT
+  bundled into a build run): the SPEC §1.7 "fob writes the sidecar via its NTP wallclock" framing (stale
+  on both counts — the on-cam agent writes the sidecar; time is boot-NTP-only/no-RTC) + CONTRACT §1.7
+  (fob-doesn't-write-sidecar). §1.10 telemetry-deferred is a one-liner, do-if-convenient. Low risk to
+  leave: the people building know the truth, and the register + code + flows are right.
+
+**Run 0e REVISED → pure contract CODE (docs fold-in DROPPED).** Per the docs strategy, 0e is now ONLY the
+five operational entities + codegen (station registry; task catalog versioning + variants + rotation;
+time-ranged task→station assignment; provision profile on hardware_unit; event-sourced hardware-config
+history + capture_stack resolved-at-ingest). No SPEC/CONTRACT edits. Additive + non-breaking to the
+firmware-facing wire types. Plan-only first. Prompt `run0e_contract_prompt.md` updated to match.
+
+## ESP32 fob boards frying (thermal) — endurance requirement + mitigations 2026-06-25
+
+**ISSUE (Mo):** the CYD fob boards get FRIED during use — PERMANENT (won't restart after), suspected
+HEATING frying a component. Team investigating; weighing a different board or heatsinks. **REQUIREMENT: a
+board must run 6–7 hours continuous without permanent damage.**
+
+**Prime suspect (hardware, grounded — web-confirmed CYD failure mode):** the CYD (ESP32-2432S028R) onboard
+**AMS1117 LDO regulator** + the **TFT backlight** are the documented CYD weak points. Under continuous
+WiFi (the coordinator AP must stay up) + full backlight + 240MHz CPU, the LINEAR LDO burns (Vin−3.3)×I
+continuously in a poor-thermal SOT-223 package; in a sealed handheld enclosure with no airflow it cooks →
+permanent failure. "Won't restart" = dead regulator (no 3.3V rail). Over-volting VIN accelerates it.
+(Confirmed: CYD projects commonly fail on unstable power — WiFi peaks + backlight draw; the fix is a clean
+switching converter, and the ESP32-S3 is the documented upgrade path.)
+
+**Hardware levers (Victor/Zak — the PRIMARY fix):**
+- **Power delivery = the biggest lever:** feed a clean regulated 3.3V (BYPASS the onboard LDO) or replace
+  the LDO path with a switching BUCK; keep VIN low. LDO heat ∝ (Vin−3.3)×I → attacks the cause.
+- Heatsink the regulator/ESP32 (cheap; treats the symptom).
+- Enclosure ventilation / thermal path (sealed handheld traps heat).
+- Board choice: ESP32-S3 module (documented CYD upgrade) or any board with a switching regulator + better
+  thermals — the durable fix if the CYD is marginal for all-day continuous duty.
+
+**Firmware mitigations (coordinator firmware — REDUCE load + a safety net; NOT a substitute for the
+hardware fix):**
+- **Backlight management** (in the F3 `ui/` layer): dim/sleep the backlight after N s idle, wake on touch
+  — the screen doesn't need full brightness between episodes; a real chunk of continuous draw.
+- **CPU clock scaling:** 240→80MHz (80 = the WiFi floor) during idle gaps; full clock only while actively
+  coordinating.
+- **WiFi TX power:** tune to the minimum that reliably reaches the wrist cameras (they're within arm's
+  length) — less RF heat. (AP must stay up during a session → TX power is the lever, not WiFi sleep.)
+- **Thermal monitoring, loud-not-silent:** the ESP32 internal temp sensor is ROUGH (relative trend /
+  threshold only, not absolute) → for real coverage add a small external thermistor on the regulator
+  hot-spot. If temp climbs toward danger, flag it + optionally shed load (force-dim, drop clock). Rides
+  the COARSE boot/idle ping channel we kept (NOT live mid-take telemetry — consistent with the single-radio
+  live-telemetry cut), so the fleet self-reports thermal health + you catch a marginal unit before field
+  death.
+
+**The ENSURE (so we don't repeat at fleet scale) — a gate, like the camera already has:**
+- **Board-thermal ENDURANCE GATE** (parallels the existing camera "2-hr continuous 3K/100 thermal
+  survival" gate in the INGESTION_CONTRACT): no board variant deploys to a fleet until one unit, **IN ITS
+  ENCLOSURE, running the real firmware load (AP up + display + coordinating), survives a 6–7 hr continuous
+  soak** at expected ambient with temps LOGGED. Add to the bench-test plan / hardware findings.
+- **Bake thermal monitoring into the firmware** so the fleet keeps reporting against the requirement
+  post-deployment.
+
+**Ownership / roadmap:** hardware fix (power/regulator/buck/heatsink/enclosure/board) → Victor/Zak
+(PRIMARY). Firmware thermal/power-management (backlight + clock + TX + temp monitoring) → a coordinator
+firmware capability — folds naturally into the **boot-uplink firmware run** (both are coordinator firmware
+outside the F1–F3 core). The endurance soak → a **bench/validation gate**. ORTHOGONAL to 0e (the contract
+pass proceeds untouched).
+
+## Board issue UPDATE — recovers + reconnection-flaky, NOT permanent death 2026-06-25
+
+CORRECTION to the thermal entry above: the board DOES power back on — it just doesn't reliably RECONNECT
+to the cameras after the event (struggles; one unit did reconnect). So it is NOT permanent frying / a dead
+regulator. Reframe: a **camera-reconnection-after-power-event robustness problem.** Mo: not certain of the
+cause; Victor debugging; continue meanwhile.
+- **Plausible unifying thread (consistent-with, NOT confirmed — Victor's debug decides):** the CYD's known
+  POWER INSTABILITY (WiFi current peaks + backlight) → a brownout/voltage dip mid-session resets the fob →
+  on recovery the fob re-hosts the AP but the X3 cameras don't cleanly RE-ASSOCIATE to the re-appeared AP
+  (the flaky part). The "thermal frying" may be a red herring (or heat degrades RF/reconnection). The
+  camera-reassociation-after-AP-flap is the EXACT area Victor's been hardening (the 2026-06-24 channel
+  {1,6,6} + ghost-STA nOk>=kMinCams + lockcams /osc/info fixes).
+- **If that's the root:** the hardware clean-power fix (buck / clean 3.3V / stable VIN) addresses the
+  brownout-resets AT THE SOURCE — so the same fix that helps the (rare) frying also helps the (common)
+  flaky-reconnection. Firmware complements: robust re-association after any reboot (fob actively re-hosts +
+  re-confirms the camera links, unconditional-AP-up, loudly flags if it can't re-establish).
+- **General robustness goal ("optimize to avoid issues like this"):** DETERMINISTIC RECOVERY after any
+  power event/reboot — the fob must reliably re-host the AP AND re-confirm the cameras, never silently sit
+  disconnected. Rides the boot-uplink firmware run (boot → re-host AP → verify cameras) + Victor's
+  reconnection hardening. The endurance soak gate stays useful to rule thermal in/out.
+- Defer the diagnosis to Victor; no build action now; **0e proceeds.**
