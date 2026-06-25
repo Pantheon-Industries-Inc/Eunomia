@@ -9,6 +9,8 @@ __pycache__/
 
 # --- PlatformIO ---
 .pio/
+# `pio run -t compiledb` build artifact (used to drive clang-tidy locally); never committed.
+compile_commands.json
 
 # --- Secrets / credentials (never committed; blocked by .claude/hooks/block-secrets.sh) ---
 .env
