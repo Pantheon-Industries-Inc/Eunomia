@@ -1,7 +1,16 @@
-# Non-blocking in Run 0a (OQ-13) — flips to blocking when coordinator/core/ lands.
+# BLOCKING since Run F2 (OQ-13/OQ-11): flipped on when coordinator/transport/ landed.
+# Scoped to the framework-free F2 logic (transport/proto/) via the Makefile's TIDY_FILES + the
+# HeaderFilterRegex below. transport/vendor/ (Victor's reference source) and the Arduino-coupled
+# transport/hw/ are NOT linted (blanket tidy over framework code is noise). core/ is deferred from the
+# blocking scope this PR (pre-existing performance-enum-size findings would need core/ edits — out of
+# F2's transport-only boundary; extend in a follow-up core PR).
+#
+# bugprone-easily-swappable-parameters is disabled: it fires on ordinary multi-string/int signatures
+# (telnet_run, build_write_file_cmd, …) and is widely treated as noise, not a real-bug signal.
 Checks: >
   clang-analyzer-*,
   bugprone-*,
-  performance-*
-WarningsAsErrors: ''
-HeaderFilterRegex: 'firmware/.*'
+  performance-*,
+  -bugprone-easily-swappable-parameters
+WarningsAsErrors: 'clang-analyzer-*,bugprone-*,performance-*'
+HeaderFilterRegex: 'firmware/coordinator/transport/proto/.*'

@@ -27,26 +27,41 @@ jobs:
         # generated Python) then assert no diff. Single source of truth, local == CI (OQ-6).
         run: make drift
 
-  # C++ / conformance — additional job. Blocking: clang-format + the off-target native
-  # build/test (which parses the same golden fixtures as the Python conformance test).
+  # C++ / conformance. ALL BLOCKING since Run F2 landed transport/: clang-format, the off-target
+  # native build/test, BOTH on-target builds (esp32 headless + cyd deployment board), clang-tidy
+  # (scoped to transport/proto/), and the camera-image checksum.
   cpp:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: install clang-format
-        run: sudo apt-get update && sudo apt-get install -y clang-format
-      - name: clang-format (blocking)
-        run: clang-format --dry-run -Werror --style=file $(find firmware -path '*/.pio' -prune -o \( -name '*.cpp' -o -name '*.cc' -o -name '*.h' -o -name '*.hpp' \) -print)
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: install clang-format + clang-tidy (PINNED — local == CI)
+        # Pinned LLVM wheels, NOT unpinned apt: ubuntu's apt clang-format drifts by runner image and
+        # disagrees with local (e.g. brace spacing + UTF-8 trailing-comment alignment), breaking the
+        # "local == CI" invariant. Pinning to the same 22.x the repo formats with makes the gate
+        # deterministic. clang-tidy is REQUIRED — gates-cpp-tidy hard-fails (does not skip) in CI if
+        # the binary is absent, so a missing install can never let the blocking gate silently pass.
+        run: |
+          pipx install clang-format==22.1.5
+          pipx install clang-tidy==22.1.7
       - name: install platformio
         run: pipx install platformio
+      - name: clang-format (blocking, per-file)
+        # PER-FILE via xargs -n1: a clang-format-22 multi-file --dry-run quirk lists every file +
+        # exits 1 even when clean; per-file is correct on every version and stays blocking on a real
+        # violation. transport/vendor/ (Victor's reference source) is pruned — never reformatted.
+        run: printf '%s\n' $(find firmware -path '*/.pio' -prune -o -path '*/vendor/*' -prune -o \( -name '*.cpp' -o -name '*.cc' -o -name '*.h' -o -name '*.hpp' \) -print) | xargs -P4 -n1 clang-format --dry-run -Werror --style=file
       - name: native build + test (blocking)
         run: pio test -e native -d firmware/coordinator
+      - name: esp32 target build (blocking)
+        run: pio run -e esp32 -d firmware/coordinator
+      - name: cyd deployment-board build (blocking)
+        run: pio run -e cyd -d firmware/coordinator
+      - name: clang-tidy (blocking, scoped transport/proto/)
+        # CI=true is set by GitHub Actions; gates-cpp-tidy runs clang-tidy when present and HARD-FAILS
+        # (exit 1) if it is absent under CI — never a silent skip.
+        run: make gates-cpp-tidy
       - name: camera-image checksum (stub, blocking)
         run: python3 firmware/camera-image/checksum_gate.py
-      # Non-blocking in Run 0a (OQ-13): esp32 target build + clang-tidy.
-      - name: esp32 target build (non-blocking)
-        run: pio run -e esp32 -d firmware/coordinator
-        continue-on-error: true
