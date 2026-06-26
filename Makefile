@@ -19,17 +19,49 @@ CPP_FILES := $(shell find firmware -path '*/.pio' -prune -o -path '*/vendor/*' -
 # halves are required to actually catch them).
 TIDY_FILES := $(shell find firmware/coordinator/core firmware/coordinator/transport/proto -name '*.cpp' 2>/dev/null)
 
-.PHONY: gates gates-python gates-cpp gates-cpp-tidy codegen drift camera-image-checksum help
+.PHONY: gates gates-python gates-cpp gates-cpp-tidy gates-db codegen drift camera-image-checksum help
 
 help:
-	@echo "make gates                 - all BLOCKING gates (python + cpp + drift)"
+	@echo "make gates                 - all BLOCKING gates (python + cpp + drift); needs NO database"
 	@echo "make gates-python          - the five Hermes python gates (verbatim, in order)"
 	@echo "make gates-cpp             - clang-format + native test + esp32 & cyd builds + tidy + checksum (blocking)"
 	@echo "make gates-cpp-tidy        - clang-tidy (BLOCKING, scoped to core/ + transport/proto/)"
+	@echo "make gates-db              - DB-backed edge/store tests (throwaway docker Postgres; loud-skip if absent)"
 	@echo "make codegen               - regenerate contracts/_generated from the neutral source"
 	@echo "make drift                 - codegen + assert contracts/_generated is unchanged"
 
 gates: gates-python gates-cpp drift
+
+# ---- DB-backed edge/store tests (Run S1) ----
+# The default `make gates` needs NO database (the `db`-marked tests skip without a DSN). This target
+# runs them: it uses EUNOMIA_STORE_TEST_DSN if set, else spins a throwaway docker Postgres, applies
+# the migration via the test harness, runs the `db` tests, and tears the container down. Guarded on
+# docker so a machine without it gets a LOUD skip, not a spurious break (the clang-tidy pattern); CI
+# runs the same tests against a postgres SERVICE container instead.
+EUNOMIA_PG_IMAGE ?= postgres:16
+EUNOMIA_PG_CONTAINER ?= eunomia-store-test-pg
+EUNOMIA_PG_PORT ?= 55432
+gates-db:
+	@if [ -n "$$EUNOMIA_STORE_TEST_DSN" ]; then \
+	  echo "gates-db: using EUNOMIA_STORE_TEST_DSN from the environment"; \
+	  uv run pytest edge/store -m db; \
+	elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+	  echo "gates-db: starting throwaway Postgres ($(EUNOMIA_PG_IMAGE))"; \
+	  docker rm -f $(EUNOMIA_PG_CONTAINER) >/dev/null 2>&1 || true; \
+	  docker run -d --name $(EUNOMIA_PG_CONTAINER) -e POSTGRES_PASSWORD=eunomia \
+	    -e POSTGRES_DB=eunomia_test -p $(EUNOMIA_PG_PORT):5432 $(EUNOMIA_PG_IMAGE) >/dev/null; \
+	  trap 'docker rm -f $(EUNOMIA_PG_CONTAINER) >/dev/null 2>&1 || true' EXIT; \
+	  echo "gates-db: waiting for Postgres"; \
+	  for _ in $$(seq 1 30); do \
+	    docker exec $(EUNOMIA_PG_CONTAINER) pg_isready -U postgres >/dev/null 2>&1 && break; \
+	    sleep 1; \
+	  done; \
+	  EUNOMIA_STORE_TEST_DSN=postgresql+psycopg://postgres:eunomia@127.0.0.1:$(EUNOMIA_PG_PORT)/eunomia_test \
+	    uv run pytest edge/store -m db; \
+	else \
+	  echo "gates-db: docker not available — SKIPPED locally (CI runs these against a postgres service)."; \
+	  echo "          Set EUNOMIA_STORE_TEST_DSN to run against your own Postgres."; \
+	fi
 
 # ---- Python: verbatim Hermes commands, Hermes order (pytest -> ruff -> mypy -> imports) ----
 gates-python:

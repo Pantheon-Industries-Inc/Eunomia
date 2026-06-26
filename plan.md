@@ -1,87 +1,134 @@
-# Run 0e — operational-model extensions (plan-of-record)
+# Run S1 — `edge/store/`: the contract-derived operational store (plan-of-record)
 
-Plan-only run, then implemented on Mo's `NOTE:` annotations. `contracts/` **code only** — no UI,
-firmware, console, or SPEC/CONTRACT doc edits. Every new entity is operational/console/ingest-side,
-**additive and non-breaking to the firmware-facing wire types** (the sidecar + the C++ targets are
-untouched; `contracts/_generated/cpp/` is byte-identical).
+Reconstructed from Mo's `NOTE:` annotations on the S1 plan (F1–F9 + the production-bar split). Builds
+the first real code under `edge/store/`: a Postgres-backed operational store that persists the
+`contracts/operational/` model as **current-state records + an append-only event log**. `contracts/`
+is **untouched** (read-only consumer): `contracts/_generated/` is byte-identical and the cpp targets
+are unchanged.
 
-## Scope landed (A–E)
+## What S1 is (and is NOT)
 
-**A. Station registry — NEW entity `eunomia-station/v1`** (`contracts/operational/`). A registered,
-site-scoped, first-class station (until 0e, `station_id` was only a string field). Anchor `station_id`
-is the per-site number-as-string the card carries; `site_id` (HARD) scopes it. **Global identity /
-uniqueness / resolution = `(site_id, station_id)`** — a documented cross-record allocation property
-(the allocator never re-issues a retired pair), not a single-record rule. `status` is an OPEN string,
-WARN-checked vs `{active, retired}` (OQ-A); `retired_at` is the retire-not-reuse marker.
-- Per NOTE: `station_number` dropped (it equals `station_id`, the number the card carries); `site_id`
-  HARD. The existing sidecar/episode `station_id` semantics (a bare per-site string the card carries)
-  are consistent with this — no conflict to flag.
+- **IS:** the store layer — schema (tables **derived from the contract**), migrations (Alembic), a
+  thin store API (upsert current-state + append events), the camera_id allocator, the as-of resolvers,
+  and the documented-shape registry importer. Topology-agnostic (a Postgres reachable by DSN).
+- **IS NOT (F9):** no event-fold / materializer (folding events → views is a later run). S1 stores the
+  current-state rows AND the append-only event log; it does not reconstruct views from events.
+- **IS NOT (F3):** no edge-authoritative assumption, no replication, no release-contract logic. The
+  store is built TOPOLOGY-AGNOSTIC — works edge OR central; the **DSN/env config is the only seam**.
+  (MODULE_MAP calls `edge/` "edge-authoritative"; S1 deliberately does not bake that in.)
+- **IS NOT (edge/api, edge/sync):** still README-only skeletons (their own future runs).
 
-**B. Task catalog — versioning + variants + rotation.** `task` already carries `version` +
-`effective_from/to` + `rotation_id`; prompt variants are modeled as **rows sharing `task_id`,
-differing by `rotation_id`** (in-DSL; no array-of-objects). Natural key `(task_id, version,
-rotation_id)`. The episode now **pins all three**: added `task_version` + `rotation_id` to
-`eunomia-episode/v1` (warn/nullable; resolved + stored at ingest, like `capture_stack_id`) so a catalog
-edit never retroactively changes a past episode. `task.station_id` flagged **legacy / non-authoritative**
-(superseded by C; kept additive per §5).
+## Decisions folded from the NOTEs
 
-**C. Task→station assignment — NEW entity `eunomia-task-station-assignment/v1`** (`contracts/operational/`).
-Append-only, time-ranged. Anchor `assignment_id`. **`site_id` + `station_id` + `effective_from` are HARD**
-(the resolution key + the record's essence); `effective_to` nullable (null = open/current). Resolution
-(documented, runs at ingest): `(site_id, station_id, timestamp)` → the row whose
-`[effective_from, effective_to)` contains the timestamp; latest `effective_from` wins. The dynamic
-replacement for the hardcoded `stations.yaml`.
-- Per NOTE §4.5: `effective_from` is HARD — a deliberate divergence from the nullable `effective_from`
-  on kit/task/calibration (an assignment is event-like, not slowly-varying).
-- Ingest note (NOT built here): the resolver can cross-check the card's stamped `task_id` against the
-  resolved assignment to catch a stale boot-mapping.
+| NOTE | Decision in S1 |
+|---|---|
+| **F2** | SQLAlchemy 2.0 **Core** (not ORM) + **psycopg3** + **Alembic**. Pin alignment with Polis is optional (separate repo) — not a blocker. |
+| **F8** | Tables are **derived from the contract** at import (`eunomia_contracts._TABLES` + dataclasses), never hand-written. A **drift test** catches contract↔store divergence. |
+| **F9** | Current-state records + append-only event log only. No materializer. |
+| **F4** | Composite natural-key PKs, **store stricter than the wire**: `task` PK `(task_id, version, rotation_id)` NOT NULL; `station` PK `(site_id, station_id)`. The episode's task pin `(task_id, task_version, rotation_id)` references this composite (no hard FK — index + resolver, F6). |
+| **F5** | Timestamp-named fields → `timestamptz` columns; **ISO-normalize on read**; the smoke test compares **parsed instants**, not strings. |
+| **F6** | **No hard FKs** (as-of grain + out-of-order arrival break simple FKs). BUT **indexes on every reference column**, and the **resolver FLAGS dangling references loudly** (a reference to a missing kit/task/station is surfaced, never a silent orphan). The store writes don't reject; the resolver enforces. |
+| **F1** | **Documented-shape importer** + committed **synthetic fixture** now (real `fleet.yaml`/`stations.yaml` are moved/absent — built against the documented shape until the live location is confirmed). **Non-destructive merge** (drift-detect + backup), never a destructive overwrite (the camera_map-incident lesson). |
+| **F7** | camera_id format is a **single swappable constant** (`CAM-<n>` placeholder until the fleet's real convention is confirmed). The importer **preserves existing camera_ids verbatim**; only unallocated cameras get a minted id. |
+| **F3** | Topology-agnostic core; DSN/env seam (see above). |
+| **prod-bar (a)** | **TLS-capable** connections — psycopg3 `sslmode` is plumbed through the DSN/config (the layer supports encrypted connections; cert + enforcement is deploy). |
+| **prod-bar (b)** | **Least-privilege roles + grants in the migration**: `eunomia_writer` (consoles — insert/update + allocate), `eunomia_reader` (ingest / god's-view — select-only), `eunomia_admin` (DDL/migrations). NOLOGIN group roles; nothing connects as superuser. |
+| **prod-bar (c)** | The **audit trail is strictly insert-only**: the append-only operational-event log, the camera_id ledger, and the import-backup table have **no update/delete path** — enforced by role grants AND a `BEFORE UPDATE OR DELETE` trigger that RAISES. |
+| **rest** | entity→table mapping; polymorphic event table (**open string `event_type`, NO CHECK**); allocator (**sequence + ledger + retire-not-reuse**); as-of resolvers + indexes; smoke test + `gates-db` + CI postgres service; `contracts/_generated`-untouched + cpp-unchanged verification. |
 
-**D. Provision profile — extend `hardware_unit`** (additive, warn/nullable): `camera_id` (the LOGICAL,
-registry-allocated, globally-unique, unchanging, retire-not-reuse id; the explicit `body_serial`↔
-`camera_id` crosswalk on one record), `fob_id`, `board` (per-fob profile), `mount` (promoted from
-sidecar-only). camera_id uniqueness + retire-not-reuse = cross-record allocation property (schema models
-the shape, the console owns the allocation). The optional `type==camera ⇒ warn-if-camera_id-absent` was
-**left out**: the DSL `conditional` is schema-version-gated (makes a field HARD when `schema` is v1+),
-not field-value-gated — so it can't express this; a hand-written `_semantics` rule is the only path and
-the NOTE said leave-if-not-cheap-in-the-DSL.
+**Flagged to INFRA / Thomaz (NOT built in S1):** immutable + off-site (WORM) backups; tailnet
+segmentation / ACLs so the store is not reachable by the whole flat Tailscale network; at-rest / disk
+encryption. (prod-bar INFRA half.)
 
-**E. Event-sourced hardware-config history / `capture_stack`** (additive, warn/nullable): added
-`kit_id` + `effective_from`/`effective_to` so the per-kit config is time-ranged + reconstructable as-of
-("kit 42: gripper v2→v3 @ date"). New operational-event types in the WARN known-set (additive;
-`event_type` stays an open string): `kit_config_changed` (a gripper swap, no reflash),
-`capture_stack_registered`, `station_registered`, `station_retired`, `task_assignment_created`,
-`task_assignment_ended`, `camera_id_allocated`, `camera_id_retired`. **Reconcile = no-op in code**: the
-sidecar carries the components (not a `capture_stack_id`) and the episode's `capture_stack_id` is
-warn/nullable (resolved + stored at ingest) — already correct; only the B-9 prose was stale, documented
-in the capture_stack header.
+## Layout — a new uv workspace member `edge/store/` (`eunomia_edge_store`)
 
-## Hand-written (non-generated) edits
+Mirrors `tooling/bench-harness` (src-layout, its own `pyproject.toml`). `edge/api/` + `edge/sync/`
+stay README-only.
 
-- `contracts/codegen/templates/semantics.py.tmpl`: `station` + `task_station_assignment` added to
-  `_OPERATIONAL_ENTITIES`; the 8 new `event_type`s added to `_OPERATIONAL_EVENT_TYPES`; new
-  `_STATION_STATUSES` + `_station_vocab` WARN-check wired into `_CROSS_FIELD_WARN["eunomia-station/v1"]`.
-- `contracts/conformance/test_conformance.py`: imports, `ENTITIES` map, and the validate-parity dict.
-- 8 new fixtures (station + assignment: valid / warn / invalid; one demonstrates `effective_from` HARD).
-- `contracts/operational/README.md`: entity table 9 → 11.
+```
+edge/store/
+  pyproject.toml                     # eunomia-edge-store; deps: eunomia-contracts, SQLAlchemy, psycopg, alembic
+  README.md                          # expanded from the 0a skeleton
+  alembic.ini
+  src/eunomia_edge_store/
+    __init__.py
+    config.py            # StoreConfig: DSN from env (EUNOMIA_STORE_DSN) + sslmode — the topology seam (F3, prod-bar a)
+    engine.py            # SQLAlchemy Engine factory (psycopg3 driver, sslmode pass-through)
+    timestamps.py        # ISO parse / normalize helpers — tz-correct (F5)
+    contract_tables.py   # derive a Core Table from a contract entity module (F8)
+    schema.py            # the MetaData: 11 current-state tables + operational_event log + camera_id ledger + import_backup
+    store.py             # upsert current-state; append-only events; ISO-normalize on read (F5)
+    allocator.py         # camera_id allocator: PG sequence + insert-only ledger + retire-not-reuse (F7)
+    resolvers.py         # as-of resolvers (task→station, capture_stack) + loud dangling-ref flagging (F6)
+    importer.py          # documented-shape registry → non-destructive merge + drift-detect + backup (F1, F7)
+  migrations/env.py, migrations/versions/0001_*.py   # create_all(derived) + roles/grants + audit triggers + camera_id_seq
+  fixtures/fleet.synthetic.json      # synthetic fleet/station registry (documented shape) (F1)
+  tests/                             # no-DB derivation/coverage + DB-backed (skip if no DSN) smoke/drift/allocator/resolver/importer
+```
 
-## Codegen impact
+## Entity → table mapping
 
-New `_generated` jsonschema + python for the 2 new entities; regenerated jsonschema + python for the 4
-edited entities + `_semantics.py` + `__init__.py`. **`contracts/_generated/cpp/` is byte-identical** —
-the only cpp targets are sidecar / telemetry_event / the ports, none touched.
+Current-state tables (PK = the store-native natural key; NOT NULL = contract-hard OR part-of-PK):
 
-## Gates (all green)
+| table | PK | notes |
+|---|---|---|
+| person | `person_id` | |
+| hardware_unit | `unit_id` | `camera_id` preserved verbatim by the importer; allocator mints only when absent |
+| kit | `kit_id` | current binding; history via events |
+| calibration | `calibration_id` | |
+| task | `(task_id, version, rotation_id)` | **store-stricter**: version/rotation_id NOT NULL though warn on the wire (F4) |
+| session | `session_id` | |
+| capture_stack | `capture_stack_id` | |
+| footage_reference | `episode_id` | one footage state per episode |
+| episode | `episode_id` | task pin `(task_id, task_version, rotation_id)` indexed, resolved not FK'd (F6) |
+| station | `(site_id, station_id)` | composite; retire-not-reuse via `retired_at`/`status` |
+| task_station_assignment | `assignment_id` | append-only; resolution `(site_id, station_id, ts)` → `[effective_from, effective_to)` |
 
-- Python: `pytest` (83), `ruff check`, `ruff format --check`, `mypy`, `lint-imports`.
-- Codegen-drift: zero (deterministic; staged tree == freshly-regenerated output).
-- C++: `clang-format`, `pio test -e native`, `pio run -e esp32`, `pio run -e cyd`, `clang-tidy`
-  (0 user findings), camera-image checksum stub.
+Store-native (not contract current-state) — **append-only, insert-only audit**:
 
-## Register decisions this run implements (mark folded; register unchanged by this run)
+| table | role |
+|---|---|
+| operational_event | the polymorphic event log — open string `event_type`, **NO CHECK** (the contract WARN-set is the only soft guard) |
+| camera_id_ledger | the allocator's ledger (every mint + retire); fed by `camera_id_seq` |
+| import_backup | the importer's before-image backups (the non-destructive-merge audit) |
 
-- "Task-setup flow" (2026-06-25) → A, B, C.
-- "Boot-uplink … provision profile" thread 2 (2026-06-25) → D (resolves the open "camera_id
-  registry-allocated + never-reused" decision — modeled).
-- "Boot-uplink …" thread 3 + "Daily hardware-setup" (B-9) → E.
-- The "FOLD-IN RECONCILE" (capture_stack_id resolved-at-ingest) → E (confirmed already-satisfied).
-- "Post-F3 sequencing" Run-0e scope + "Run 0e revised → pure contract CODE".
+Column types (derived): string→`Text`; timestamp-named (`*_at`, `effective_from`, `effective_to`,
+`as_of`)→`DateTime(timezone=True)`; int→`BigInteger`; number→`Double`; bool→`Boolean`;
+object/array→`JSONB`.
+
+## Derive-from-contract + drift (F8)
+
+`contract_tables.build_table(entity_module)` reads the module's `_TABLES` (hard/warn/nullable/enum)
+and dataclass to emit a Core `Table`. The runtime tables are therefore always in lockstep with the
+contract. Two guards:
+
+- **No-DB (default `pytest`):** every operational + `operational_event` contract entity maps to a
+  table; every contract field is a column with the right type/nullability; the PK store-stricter
+  overrides are consistent; **every table compiles to valid PostgreSQL DDL** (`CreateTable` against the
+  pg dialect — no DB needed).
+- **DB-backed (`gates-db`):** after `alembic upgrade head`, the live schema equals the contract-derived
+  metadata; the three roles, their grants, and the audit triggers exist.
+
+## Gates
+
+- **Default `make gates` is unchanged** and must stay green with **no database**: DB-backed tests carry
+  a `db` marker and `skipif` on a missing `EUNOMIA_STORE_TEST_DSN`. New deps land in the lockfile; the
+  five Python gates + drift run over `edge/store/` too.
+- **New `make gates-db`:** spins a throwaway docker Postgres (loud-skip if docker is absent, like
+  `clang-tidy`), runs `alembic upgrade head` + `pytest -m db`. CI adds a parallel job with a
+  `services: postgres` container.
+- **Untouched:** `make drift` is clean and `git diff contracts/_generated` + the cpp targets are empty
+  (S1 only READS the contract).
+
+## Open questions (flagged, not silently decided)
+
+1. **Member granularity / package name.** S1 makes `edge/store/` its own member `eunomia_edge_store`
+   (matches the `tooling/bench-harness` leaf-is-the-member pattern; keeps S1 scoped; avoids the
+   `eunomia_store` ↔ Hermes-store ambiguity MODULE_MAP warns about). The alternative — one `eunomia_edge`
+   package with `store/`/`api/`/`sync/` subpackages — would make a future `api → store` call an
+   intra-package import (no import-linter friction). Deferred to when `edge/api/` lands; reversible.
+2. **camera_id format (F7).** `CAM-<n>` is a placeholder in a single swappable constant until the
+   fleet's real convention is confirmed. The importer preserves existing ids verbatim regardless.
+3. **Live registry location (F1).** Built against the documented shape + the committed synthetic
+   fixture; swap the importer's source path once the current `fleet`/`stations` registry location is
+   confirmed.

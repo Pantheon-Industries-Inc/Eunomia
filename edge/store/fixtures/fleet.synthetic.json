@@ -1,0 +1,35 @@
+{
+  "_note": "Synthetic fleet/station registry — the DOCUMENTED shape (NOTE F1). The real fleet/stations source was moved/absent; build against this until the live location is confirmed. The importer is serialization-agnostic (takes a dict), so a YAML loader can land with the real source.",
+  "site_id": "site-01",
+  "cameras": [
+    {
+      "unit_id": "unit-BS-1001",
+      "body_serial": "BS-1001",
+      "insv_serial": "INSV-AAAA",
+      "mac": "AA:BB:CC:00:11:22",
+      "kit_id": "kit-001",
+      "side": "left",
+      "camera_id": "CAM-existing-1"
+    },
+    {
+      "body_serial": "BS-1002",
+      "insv_serial": "INSV-BBBB",
+      "mac": "AA:BB:CC:00:11:23",
+      "kit_id": "kit-001",
+      "side": "right"
+    }
+  ],
+  "stations": [
+    {
+      "station_id": "1000",
+      "label": "fold table, by window",
+      "task_id": "task-fold",
+      "task_version": 1,
+      "rotation_id": "rot-a"
+    },
+    {
+      "station_id": "1001",
+      "label": "assembly bench"
+    }
+  ]
+}

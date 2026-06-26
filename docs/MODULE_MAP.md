@@ -145,10 +145,11 @@ here (it is the QC + trim input); the front lens is dropped from the training ou
 ## `edge/` — the on-site operational store + sync (Python service, runs on-site)
 
 The small operational-metadata store the **ground teams read/write live**. Tiny (kilobytes/episode),
-local, **survives a WAN outage** (edge-authoritative).
+**topology-agnostic (Postgres via DSN); authoritative-location TBD pending the infra team** (Run S1).
 
-- `edge/store/` — the operational store (persists the `contracts/operational/` model, event-sourced).
-  The consoles write through this; it's the live system of record on the ground.
+- `edge/store/` — the operational store (persists the `contracts/operational/` model as current-state
+  records + an append-only event log). The consoles write through this; it's the live system of record
+  on the ground.
 - `edge/sync/` — periodic replication of the metadata to a Hades backup (an intentional design when
   we build it: cadence, conflict policy, edge-authoritative confirmation). Footage does NOT go here —
   footage takes the separate drain→ship path. This syncs only the small metadata.
