@@ -1,0 +1,13 @@
+{
+  "schema": "eunomia-task-station-assignment/v1",
+  "assignment_id": "asn_001",
+  "site_id": "SF-3",
+  "station_id": "1003",
+  "task_id": "fold_towel",
+  "task_version": 2,
+  "rotation_id": "rot_a",
+  "effective_from": "2026-06-25T08:00:00Z",
+  "effective_to": null,
+  "assigned_by": "person_017",
+  "created_at": "2026-06-25T07:55:00Z"
+}

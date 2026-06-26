@@ -8,19 +8,21 @@ unified successor to `fleet.yaml` + `operator_roster.yaml` + `x3_state.json` + t
 Targets are **`[jsonschema, python]`** only; **firmware never reads the operational model** (it writes
 the sidecar + emits telemetry), so there is no C++ target (decision OQ-10).
 
-## The nine entities (CONTRACT §3.1–§3.2)
+## The eleven entities (CONTRACT §3.1–§3.2 + the Run-0e operational extensions)
 
 | File | Entity | Anchor (HARD) | Notes |
 |---|---|---|---|
 | `eunomia-person.schema.yaml` | person | `person_id` | Decoupled from kit; lifecycle = events (B-8). |
-| `eunomia-hardware-unit.schema.yaml` | hardware_unit | `unit_id` | Serials immutable + the §3.4 crosswalk key, **never decide kit** (§3.3). |
+| `eunomia-hardware-unit.schema.yaml` | hardware_unit | `unit_id` | Serials immutable + the §3.4 crosswalk key, **never decide kit** (§3.3). Run 0e: the `body_serial`↔`camera_id` provision profile (+ fob/mount). |
 | `eunomia-kit.schema.yaml` | kit | `kit_id` | A time-bound binding of {left-cam, right-cam, fob} units. |
 | `eunomia-calibration.schema.yaml` | calibration | `calibration_id` | Optional; `scope` none/fleet/per_camera (C-11). |
-| `eunomia-task.schema.yaml` | task | `task_id` | Versioned prompt; resolved as-of recording (§3.5). |
+| `eunomia-task.schema.yaml` | task | `task_id` | Versioned prompt + rotation variants; resolved/pinned as-of recording (§3.5). Catalog key (task_id, version, rotation_id); `station_id` is legacy. |
 | `eunomia-session.schema.yaml` | session | `session_id` | The kit↔person binding (OQ-D) + `fob_session_id`. |
-| `eunomia-capture-stack.schema.yaml` | capture_stack | `capture_stack_id` | Registered provenance, referenced by id (B-9). |
+| `eunomia-capture-stack.schema.yaml` | capture_stack | `capture_stack_id` | Registered provenance, **resolved at ingest** from kit_id+components+timestamp (B-9). Run 0e: per-kit + time-ranged. |
 | `eunomia-footage-reference.schema.yaml` | footage_reference | `episode_id` | Byte lifecycle on_card→…→purged + the spot-check held-purge (A-2, OQ-5). |
-| `eunomia-episode.schema.yaml` | episode | `episode_id` | **The join point** (§3.2); references resolve as-of `recorded_at`. |
+| `eunomia-episode.schema.yaml` | episode | `episode_id` | **The join point** (§3.2); references resolve as-of `recorded_at`. Run 0e: pins `task_version`+`rotation_id`. |
+| `eunomia-station.schema.yaml` | station | `station_id` | **Run 0e.** A registered, site-scoped station; global identity = (`site_id`, `station_id`); retire-not-reuse. |
+| `eunomia-task-station-assignment.schema.yaml` | task_station_assignment | `assignment_id` | **Run 0e.** Append-only, time-ranged (`site_id`,`station_id`)→task; resolved as-of at ingest (the dynamic stations.yaml). |
 
 ## How the model is built (Run 0d)
 

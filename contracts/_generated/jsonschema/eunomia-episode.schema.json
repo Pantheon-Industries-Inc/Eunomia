@@ -88,6 +88,13 @@
       "description": "0/1 \u2014 the did-it-actually-record flag (the no-SD trap).",
       "type": "integer"
     },
+    "rotation_id": {
+      "description": "The PINNED rotation/prompt variant (on the sidecar today; now also pinned on the operational episode, B). Resolved + stored at ingest.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "schema": {
       "description": "Schema identifier; additive semver (\u00a75).",
       "enum": [
@@ -115,6 +122,13 @@
     "task_id": {
       "description": "Task identity (the task menu entry; prompt resolved as-of via the task entity).",
       "type": "string"
+    },
+    "task_version": {
+      "description": "The PINNED task version (Run 0e, B). The catalog natural key is (task_id, version, rotation_id); a catalog edit never retroactively changes a past episode. Resolved + stored at ingest (like capture_stack_id).",
+      "type": [
+        "integer",
+        "null"
+      ]
     },
     "void": {
       "description": "Voided by flag. void==true REQUIRES void_reason (cross-field rule, OQ-11/\u00a73.2).",

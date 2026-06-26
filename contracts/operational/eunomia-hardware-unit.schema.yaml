@@ -18,6 +18,16 @@
 # `operational-event` records, NEVER an embedded object array. `status` is the materialized current
 # state; transition LEGALITY is multi-record (the event log), not a single-record check.
 # SHAPE: `provisioning` is ONE nested object level (like the sidecar `provenance` group) — within DSL.
+#
+# PROVISION PROFILE (Run 0e; DECISION_REGISTER 2026-06-25 "Boot-uplink … provision profile" thread 2):
+# the per-unit registry record makes the body_serial↔camera_id CROSSWALK explicit on one record:
+# `body_serial` (physical, immutable, READ from the device — above) ↔ `camera_id` (LOGICAL, globally
+# unique, unchanging, REGISTRY-ALLOCATED — never free-typed, never reused; retires on swap so episodes
+# resolve to the right physical camera across a swap). camera_id's uniqueness + retire-not-reuse are a
+# CROSS-RECORD allocation property (same treatment as the serials above + the station registry): the
+# schema carries the id + the retire is the unit lifecycle (status=retired + a camera_id_retired event);
+# the ALLOCATION process is console-side. `mount` is promoted from sidecar-only into the registry;
+# `fob_id`/`board` are the per-fob profile (fob firmware is provisioning.firmware_version).
 
 schema: eunomia-hardware-unit/v1
 title: HardwareUnit
@@ -84,6 +94,26 @@ fields:
     required: warn
     enum: [left, right]
     description: Camera side (NAND-burned; domain-closed enum). OMITTED for non-cameras (absent, not null — a nullable enum would reject null structurally).
+  - name: camera_id
+    type: string
+    required: warn
+    nullable: true
+    description: LOGICAL camera identity (registry-allocated, globally unique, unchanging, retire-not-reuse). The body_serial↔camera_id crosswalk; cameras only (null otherwise).
+  - name: fob_id
+    type: string
+    required: warn
+    nullable: true
+    description: Logical fob identity (fobs only; matches sidecar provenance.fob_id).
+  - name: board
+    type: string
+    required: warn
+    nullable: true
+    description: Board type (fobs, e.g. esp32-cyd; the per-fob profile, with provisioning.firmware_version).
+  - name: mount
+    type: string
+    required: warn
+    nullable: true
+    description: Mount config (cameras) — promoted from sidecar-only into the per-unit registry profile.
   - name: provisioning
     type: object
     required: warn

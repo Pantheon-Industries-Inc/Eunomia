@@ -1,0 +1,81 @@
+# Eunomia operational entity — task_station_assignment (the time-ranged station→task link).
+#
+# AUTHORITY: the task-setup-flow decision (DECISION_REGISTER 2026-06-25 "Task-setup flow") + the
+# post-F3 Run-0e scope. The DYNAMIC, supervisor-managed replacement for the old hardcoded station→task
+# YAML (config/stations.yaml). An APPEND-ONLY record: "(site_id, station_id) assigned task_id (+ version,
+# + rotation) effective_from t (effective_to open/nullable)." A mid-day change is a NEW row, never an
+# in-place edit → "what was this station doing at any moment" stays answerable (OQ-4 event-sourcing).
+#
+# RESOLUTION (SITE-SCOPED; documented, runs at INGEST — NOT here): given (site_id, station_id, timestamp)
+# — both keys are on the card (sidecar identity.station_id + provenance.site_id) — pick the row whose
+# [effective_from, effective_to) contains the timestamp; the latest effective_from wins on overlap. This
+# is the authoritative station↔task link (task.station_id is legacy/non-authoritative). NOTE for the
+# ingest run (NOT built here): the resolver can cross-check the card's STAMPED task_id against the
+# resolved assignment to catch a stale boot-mapping (a mid-day reassignment the fob hadn't re-staged).
+#
+# KEYS HARD: `site_id` + `station_id` are BOTH hard — they are the resolution key, and a bare station_id
+# collides across sites. `effective_from` is HARD: a time-ranged record whose START TIME is its essence
+# (null-as-open-start is ambiguous for resolution) — this DELIBERATELY diverges from the nullable
+# effective_from on kit/task/calibration, because an assignment is event-like, not slowly-varying.
+# `effective_to` stays nullable (null = open/current). TARGETS: [jsonschema, python] (OQ-10).
+
+schema: eunomia-task-station-assignment/v1
+title: TaskStationAssignment
+description: An append-only, time-ranged (site_id, station_id)→task assignment; resolved as-of at ingest — the dynamic stations.yaml.
+targets: [jsonschema, python]
+
+fields:
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-task-station-assignment/v1]
+    description: Schema identifier; additive semver (§5).
+  - name: assignment_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The assignment record's own id (the anchor; append-only idempotency, like operational-event.event_id).
+  - name: site_id
+    type: string
+    required: hard
+    non_empty: true
+    description: Site scope (on the card, provenance.site_id) — part of the resolution key; a bare station_id collides across sites.
+  - name: station_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The assigned station (on the card, identity.station_id) — part of the (site_id, station_id, timestamp) resolution key.
+  - name: task_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The assigned task (the catalog entry).
+  - name: task_version
+    type: int
+    required: warn
+    nullable: true
+    description: The assigned task version (the catalog is versioned; pinned onto the episode at ingest, B/OQ-6).
+  - name: rotation_id
+    type: string
+    required: warn
+    nullable: true
+    description: The assigned rotation/prompt variant (a task carries one-or-more variants selected by rotation_id).
+  - name: effective_from
+    type: string
+    required: hard
+    description: Start of this assignment's validity — HARD (the record's essence; resolution anchor). Diverges from kit/task nullable.
+  - name: effective_to
+    type: string
+    required: warn
+    nullable: true
+    description: End of validity; null = the open/current assignment. A mid-day change closes this and appends a new row.
+  - name: assigned_by
+    type: string
+    required: warn
+    nullable: true
+    description: The supervisor/person who set the assignment (provenance).
+  - name: created_at
+    type: string
+    required: warn
+    nullable: true
+    description: When this assignment row was appended (distinct from effective_from, which is when it takes effect).

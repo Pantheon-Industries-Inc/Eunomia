@@ -39,8 +39,10 @@ from eunomia_contracts import (
     release,
     session,
     sidecar,
+    station,
     sync_delta,
     task,
+    task_station_assignment,
     telemetry_event,
 )
 from eunomia_contracts.interfaces import CaptureDevicePort, CoordinatorPort
@@ -66,6 +68,12 @@ ENTITIES = {
     "footage_reference": ("eunomia-footage-reference", footage_reference.validate_full),
     "episode": ("eunomia-episode", episode.validate_full),
     "operational_event": ("eunomia-operational-event", operational_event.validate_full),
+    # Run 0e operational extensions
+    "station": ("eunomia-station", station.validate_full),
+    "task_station_assignment": (
+        "eunomia-task-station-assignment",
+        task_station_assignment.validate_full,
+    ),
 }
 
 
@@ -179,6 +187,8 @@ def test_validate_matches_validate_full_hard_channel() -> None:
                 "footage_reference": footage_reference,
                 "episode": episode,
                 "operational_event": operational_event,
+                "station": station,
+                "task_station_assignment": task_station_assignment,
             }[entity].validate(obj)
             assert hard_only == _validate_full(entity, obj)[0], (
                 f"{entity}/{path.name}: validate disagrees"

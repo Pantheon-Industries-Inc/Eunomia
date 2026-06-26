@@ -80,6 +80,16 @@ fields:
     type: string
     required: hard
     description: Task identity (the task menu entry; prompt resolved as-of via the task entity).
+  - name: task_version
+    type: int
+    required: warn
+    nullable: true
+    description: The PINNED task version (Run 0e, B). The catalog natural key is (task_id, version, rotation_id); a catalog edit never retroactively changes a past episode. Resolved + stored at ingest (like capture_stack_id).
+  - name: rotation_id
+    type: string
+    required: warn
+    nullable: true
+    description: The PINNED rotation/prompt variant (on the sidecar today; now also pinned on the operational episode, B). Resolved + stored at ingest.
   - name: station_id
     type: string
     required: hard

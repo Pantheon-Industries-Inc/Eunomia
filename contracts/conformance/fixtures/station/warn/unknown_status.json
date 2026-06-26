@@ -1,0 +1,9 @@
+{
+  "schema": "eunomia-station/v1",
+  "station_id": "1003",
+  "site_id": "SF-3",
+  "status": "decommissioned",
+  "label": "Fold table, by window",
+  "registered_at": "2026-03-01T00:00:00Z",
+  "retired_at": null
+}

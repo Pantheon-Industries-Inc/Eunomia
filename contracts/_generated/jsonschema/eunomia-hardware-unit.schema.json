@@ -11,8 +11,29 @@
         "null"
       ]
     },
+    "board": {
+      "description": "Board type (fobs, e.g. esp32-cyd; the per-fob profile, with provisioning.firmware_version).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "body_serial": {
       "description": "Immutable body serial (provenance/crosswalk; \u00a73.4; null until provisioned).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "camera_id": {
+      "description": "LOGICAL camera identity (registry-allocated, globally unique, unchanging, retire-not-reuse). The body_serial\u2194camera_id crosswalk; cameras only (null otherwise).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "fob_id": {
+      "description": "Logical fob identity (fobs only; matches sidecar provenance.fob_id).",
       "type": [
         "string",
         "null"
@@ -41,6 +62,13 @@
     },
     "mac": {
       "description": "MAC address (provisioning fact, R-2).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "mount": {
+      "description": "Mount config (cameras) \u2014 promoted from sidecar-only into the per-unit registry profile.",
       "type": [
         "string",
         "null"

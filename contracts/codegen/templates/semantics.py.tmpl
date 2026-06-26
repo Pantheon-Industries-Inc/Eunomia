@@ -180,9 +180,12 @@ _OPERATIONAL_ENTITIES = frozenset(
         "capture_stack",
         "footage_reference",
         "episode",
+        "station",
+        "task_station_assignment",
     }
 )
 _HARDWARE_UNIT_TYPES = frozenset({"fob", "camera", "sd", "gripper"})
+_STATION_STATUSES = frozenset({"active", "retired"})
 _HARDWARE_UNIT_STATUSES = frozenset(
     {"received", "provisioned", "deployed", "faulted", "retired"}
 )
@@ -205,6 +208,15 @@ _OPERATIONAL_EVENT_TYPES = frozenset(
         "task_version_bumped",
         "kit_binding_changed",
         "roster_binding_changed",
+        # Run 0e operational extensions (additive; event_type stays an open string)
+        "station_registered",
+        "station_retired",
+        "task_assignment_created",
+        "task_assignment_ended",
+        "camera_id_allocated",
+        "camera_id_retired",
+        "kit_config_changed",
+        "capture_stack_registered",
     }
 )
 
@@ -239,11 +251,16 @@ def _operational_event_vocab(obj: dict) -> "list[str]":
     ) + _warn_value_in_set(obj, "entity", _OPERATIONAL_ENTITIES)
 
 
+def _station_vocab(obj: dict) -> "list[str]":
+    return _warn_value_in_set(obj, "status", _STATION_STATUSES)
+
+
 _CROSS_FIELD_WARN: dict = {
     "eunomia-sync-delta/v1": [_sync_delta_entity_known],
     "eunomia-hardware-unit/v1": [_hardware_unit_vocab],
     "eunomia-person/v1": [_person_vocab],
     "eunomia-operational-event/v1": [_operational_event_vocab],
+    "eunomia-station/v1": [_station_vocab],
 }
 
 
