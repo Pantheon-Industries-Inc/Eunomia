@@ -65,3 +65,33 @@ jobs:
         run: make gates-cpp-tidy
       - name: camera-image checksum (stub, blocking)
         run: python3 firmware/camera-image/checksum_gate.py
+
+  # DB-backed edge/store tests (Run S1). The default `gates` job needs no database; these run against
+  # a Postgres SERVICE container. The test harness (conftest.py) applies the Alembic migration, so the
+  # roles/grants + insert-only audit triggers (NOTE prod-bar b/c) are exercised, not just the tables.
+  store-db:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: eunomia
+          POSTGRES_DB: eunomia_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen --all-packages
+      - name: DB-backed store tests (-m db)
+        env:
+          EUNOMIA_STORE_TEST_DSN: postgresql+psycopg://postgres:eunomia@localhost:5432/eunomia_test
+        run: uv run pytest edge/store -m db

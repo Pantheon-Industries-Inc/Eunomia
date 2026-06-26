@@ -1,0 +1,23 @@
+[project]
+name = "eunomia-edge-store"
+version = "0.0.0"
+description = "Eunomia edge operational store — Postgres-backed, contract-derived (Run S1). Depends only on contracts."
+requires-python = ">=3.12"
+# Runtime deps. SQLAlchemy 2.0 Core (not ORM) + psycopg3 + Alembic (NOTE F2). eunomia-contracts is
+# the spine (the dependency law): the tables are DERIVED from it (NOTE F8), nothing else internal.
+dependencies = [
+    "eunomia-contracts",
+    "sqlalchemy>=2.0,<3.0",
+    "psycopg[binary]>=3.1,<4.0",
+    "alembic>=1.13,<2.0",
+]
+
+[tool.uv.sources]
+eunomia-contracts = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/eunomia_edge_store"]
