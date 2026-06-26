@@ -9,10 +9,10 @@
 namespace eunomia::transport {
 
 // OQ-4: the single-radio uplink-borrow tears down the SoftAP and drops every camera, so Victor
-// keeps it code-disabled (`uplinkUp()` has an unconditional `return false`). flush_telemetry()
-// therefore has no live transport: this sink is a no-op until a non-AP-destroying uplink exists.
-// The durable ordinal-log backup (core's RAM ring) is the real fail-safe and is unaffected.
-// Deps.telemetry may be left null entirely; this exists for explicit parity with the F1 seam.
+// keeps it code-disabled (`uplinkUp()` has an unconditional `return false`). This sink is a no-op
+// until a non-AP-destroying uplink exists (F7). The real fail-safe is the DURABLE LittleFS
+// ordinal-join log (transport/hw/episode_log.h), written in core's trigger() — independent of this
+// opportunistic uplink. Deps.telemetry may be left null; this exists for parity with the F1 seam.
 class DisabledUplink : public eunomia::core::TelemetrySink {
 public:
   void send(const std::string & /*event_json*/) override {

@@ -54,7 +54,8 @@ public:
     Rng *rng = nullptr;
     PersistentStore *store = nullptr;
     PresenceSource *presence = nullptr;
-    TelemetrySink *telemetry = nullptr; // optional opportunistic uplink (F2 transport)
+    TelemetrySink *telemetry = nullptr;     // optional opportunistic uplink (F2 seam; F7 fills it)
+    EpisodeLogStore *episode_log = nullptr; // the DURABLE ordinal-join backup (F5; null = no log)
   };
   using Fleet = std::vector<std::pair<std::string, eunomia::CaptureDevicePort *>>;
 
@@ -94,8 +95,9 @@ public:
     return deps_.presence != nullptr ? deps_.presence->present().size() : 0;
   }
   const TakeContext &take() const { return take_; }
-  const OrdinalLog &ordinal_log() const { return ordinal_log_; }
-  std::size_t pending_telemetry() const { return pending_.size(); }
+  // The TRUE durable fob ordinal (the NVS counter's last-issued value) — for cmd=status (FLAG-D:
+  // the old status read the RAM log COUNT here, which reset to 0 on every battery swap).
+  std::int64_t current_ordinal() const { return ordinal_.current(); }
 
   // The current take's eunomia-sidecar/v1 record for `camera` (the contract surface; testable).
   eunomia::Sidecar assemble_current_sidecar(const CameraInfo &cam) const;
@@ -113,7 +115,6 @@ private:
   Assignment assignment_;
   TriggerStateMachine sm_;
   DurableOrdinal ordinal_;
-  OrdinalLog ordinal_log_;
   std::map<std::string, StartConfirmable *> confirmers_; // side → fire-confirm channel (F6, opt-in)
 
   std::string pending_episode_id_; // minted by mint_episode_id, consumed by trigger
@@ -121,7 +122,6 @@ private:
   TakeContext take_; // the current/last take's coordinator-owned fields
   GateOutcome last_outcome_ = GateOutcome::PhantomDropped;
   std::size_t last_sent_ = 0;
-  std::vector<std::string> pending_; // queued god's-view event lines (flushed in the idle gap)
 };
 
 } // namespace eunomia::core

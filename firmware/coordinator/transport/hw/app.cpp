@@ -1,6 +1,7 @@
 #include "app.h"
 
 #include <Arduino.h>
+#include <LittleFS.h>
 #include <cstdio>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -11,6 +12,8 @@
 #include "clock_rng.h"
 #include "conn.h"
 #include "coordinator.h"
+#include "episode_log.h"
+#include "heap_health.h"
 #include "nvs_store.h"
 #include "presence.h"
 #include "provisioning_rx.h"
@@ -62,6 +65,7 @@ SoftAp g_softap;
 CameraRegistry g_registry;
 StationTablePresence g_presence(g_registry);
 DisabledUplink g_uplink;
+LittleFsEpisodeLog g_episode_log; // the durable §1.7 ordinal-join backup (begin() after LittleFS)
 WifiConn g_conn_left, g_conn_right, g_conn_lock;
 ArduinoDelayer g_delayer;
 Assignment g_assignment;
@@ -108,6 +112,18 @@ void toggle_record() {
     return;
   }
   if (g_coord->state() == State::Idle) {
+    // Low-heap watchdog (F5, by construction): refuse a START when the largest contiguous block is
+    // below the floor — firing the OSC/WiFi mallocs into a fragmented heap is what strands the cams
+    // at cams:0 (Victor's reactive finding). A loud refusal + power-cycle beats a silent wedge.
+    // STOP is never gated (the Recording branch below always runs). Gates on largest_free_block,
+    // not total free (the fragmentation predictor).
+    const auto largest = static_cast<std::size_t>(ESP.getMaxAllocHeap());
+    if (!eunomia::core::heap_ok(largest)) {
+      Serial.printf(
+          "[heap] LOW MEMORY (largest=%u floor=%u) - START refused; power-cycle the fob\n",
+          static_cast<unsigned>(largest), static_cast<unsigned>(eunomia::core::kHeapFloorBytes));
+      return;
+    }
     lock_wifi();
     g_coord->mint_episode_id();
     const bool ok = g_coord->trigger(kFleetSides); // present-gated; fires the present sides only
@@ -170,14 +186,23 @@ void lockcams() {
 }
 
 void print_status() {
-  Serial.printf(
-      "{\"kit_id\":\"%s\",\"operator_id\":\"%s\",\"station\":\"%s\",\"cams\":%u,"
-      "\"ordinal\":%lld,\"time_set\":%s,\"ap_ssid\":\"%s\",\"ap_ch\":%u,\"sides\":\"%s\"}\n",
-      g_assignment.kit_id.c_str(), g_assignment.operator_id.c_str(),
-      g_assignment.station_id.c_str(), static_cast<unsigned>(g_registry.present().size()),
-      g_coord ? static_cast<long long>(g_coord->ordinal_log().size()) : 0,
-      g_clock.time_set() ? "true" : "false", g_softap.ssid().c_str(),
-      static_cast<unsigned>(g_softap.channel()), g_store.sides_csv().c_str());
+  // Heap health (F5): largest_free_block is the fragmentation predictor the watchdog gates on; free
+  // is total; min is the low-water mark since boot. log_bytes is the durable ordinal-log size. The
+  // `ordinal` field is now the TRUE durable counter (FLAG-D: it used to print the RAM log count,
+  // which read 0 after every battery swap). Serial-only — network exposure rides F7 (no contract
+  // change here).
+  Serial.printf("{\"kit_id\":\"%s\",\"operator_id\":\"%s\",\"station\":\"%s\",\"cams\":%u,"
+                "\"ordinal\":%lld,\"time_set\":%s,\"ap_ssid\":\"%s\",\"ap_ch\":%u,\"sides\":\"%s\","
+                "\"free_heap\":%u,\"min_heap\":%u,\"largest_free_block\":%u,\"log_bytes\":%lu}\n",
+                g_assignment.kit_id.c_str(), g_assignment.operator_id.c_str(),
+                g_assignment.station_id.c_str(), static_cast<unsigned>(g_registry.present().size()),
+                g_coord ? static_cast<long long>(g_coord->current_ordinal()) : 0,
+                g_clock.time_set() ? "true" : "false", g_softap.ssid().c_str(),
+                static_cast<unsigned>(g_softap.channel()), g_store.sides_csv().c_str(),
+                static_cast<unsigned>(ESP.getFreeHeap()),
+                static_cast<unsigned>(ESP.getMinFreeHeap()),
+                static_cast<unsigned>(ESP.getMaxAllocHeap()),
+                static_cast<unsigned long>(g_episode_log.bytes()));
 }
 
 void apply_kv(const String &key, const String &val) {
@@ -341,6 +366,21 @@ void discovery_task(void *) {
       g_prov_rx.poll(); // gated (OQ-8) — no-op unless PANTHEON_SD_DAEMON_RX
       unlock_wifi();
     }
+    // Periodic heap-health warn (F5) so degradation is visible in the soak BETWEEN takes, not only
+    // when a START is refused. Rate-limited to ~30 s so a low-heap box does not spam the serial
+    // log.
+    const auto largest = static_cast<std::size_t>(ESP.getMaxAllocHeap());
+    if (largest < eunomia::core::kHeapWarnBytes) {
+      static std::uint32_t last_warn_ms = 0;
+      const std::uint32_t now = millis();
+      if (now - last_warn_ms > 30000) {
+        last_warn_ms = now;
+        Serial.printf("[heap] WARN largest=%u free=%u min=%u (warn<%u)\n",
+                      static_cast<unsigned>(largest), static_cast<unsigned>(ESP.getFreeHeap()),
+                      static_cast<unsigned>(ESP.getMinFreeHeap()),
+                      static_cast<unsigned>(eunomia::core::kHeapWarnBytes));
+      }
+    }
     vTaskDelay(pdMS_TO_TICKS(700));
   }
 }
@@ -362,7 +402,11 @@ void app_setup() {
   pinMode(PANTHEON_PIN_BUTTON, INPUT_PULLUP);
 
   g_store.begin();
-  reload_assignment(); // load identity BEFORE constructing the coordinator (sets g_assignment)
+  if (!LittleFS.begin(true)) { // format-on-fail; the durable ordinal-log lives here (F5)
+    Serial.println("[fs] LittleFS mount failed");
+  }
+  g_episode_log.begin(); // recover the active segment from flash (survives a battery swap)
+  reload_assignment();   // load identity BEFORE constructing the coordinator (sets g_assignment)
 
   // Construct the Coordinator now that NVS is open (DurableOrdinal reads the real persisted
   // ordinal). Named Deps/Fleet so the derived→base seam pointers convert unambiguously.
@@ -372,6 +416,7 @@ void app_setup() {
   deps.store = &g_store;
   deps.presence = &g_presence;
   deps.telemetry = &g_uplink;
+  deps.episode_log = &g_episode_log; // the durable §1.7 ordinal-join backup (F5)
   Coordinator::Fleet fleet = {{"left", &g_left}, {"right", &g_right}};
   static Coordinator coord(deps, fleet, 2);
   g_coord = &coord;
