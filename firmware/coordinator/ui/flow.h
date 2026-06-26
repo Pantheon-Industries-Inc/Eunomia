@@ -27,6 +27,8 @@ public:
 
   // ---- reads (for rendering) ----
   virtual eunomia::core::State core_state() = 0; // the trigger SM state (same-core read)
+  virtual bool last_start_failed() = 0;          // F6: the last START rolled back (fire didn't
+                                                 // confirm) — drives the brief failure notice
   virtual std::size_t present_count() = 0;       // live L2 count, cached by the discovery task (the
                                                  // lock owner) — never read the registry from here
   virtual std::size_t required_cameras() = 0;
@@ -71,8 +73,9 @@ private:
   std::uint32_t take_n_ = 0;           // per-session take counter (resets on boot / table change)
   std::uint32_t confirm_start_ms_ = 0; // CONFIRM auto-save timer
   std::uint32_t hdr_arm_ms_ = 0;       // MAIN header double-tap arm (table-change guard)
-  std::uint32_t main_sig_ = 0;         // last MAIN render signature (redraw only on change)
-  bool force_ = true;                  // force a redraw next tick
+  std::uint32_t start_fail_until_ms_ = 0; // F6: show "START FALLO" on MAIN until this ms (0 = none)
+  std::uint32_t main_sig_ = 0;            // last MAIN render signature (redraw only on change)
+  bool force_ = true;                     // force a redraw next tick
 };
 
 } // namespace eunomia::ui

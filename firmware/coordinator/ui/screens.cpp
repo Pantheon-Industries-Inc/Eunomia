@@ -249,6 +249,14 @@ void render_main(const MainView &v) {
       tft.setTextColor(tft.color565(255, 220, 120), bg);
       tft.drawString("!  1/2 - una camara cayo", 160, MID + 24);
       tft.setTextColor(TFT_WHITE, bg);
+    } else if (!rec && v.start_failed) {
+      // F6 fire-confirm rollback: GRABAR is live (cams present), but the last START did NOT confirm
+      // on both cams (or the durable commit failed) and was rolled back — NO take committed.
+      // Loud-not-silent: tell the operator it FAILED (vs a mis-press) so they retry. Brief; flow
+      // clears it after a couple seconds.
+      tft.setTextColor(tft.color565(255, 220, 120), bg);
+      tft.drawString("FALLO - reintenta / retry", 160, MID + 24);
+      tft.setTextColor(TFT_WHITE, bg);
     } else {
       tft.drawString(rec ? "Stop recording" : "Start recording", 160, MID + 24);
     }

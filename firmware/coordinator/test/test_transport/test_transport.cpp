@@ -514,9 +514,47 @@ void test_persist_before_advance_under_nvs_failure() {
 
   TEST_ASSERT_FALSE(coord.trigger({"left", "right"}));                  // rolled back
   TEST_ASSERT_EQUAL(0, static_cast<int>(coord.take().episode_ordinal)); // ordinal NOT burned
-  // and crucially: NO startCapture was fired (the abort happens before the fire loop)
-  TEST_ASSERT_EQUAL(0, static_cast<int>(cl.osc_commands().size()));
-  TEST_ASSERT_EQUAL(0, static_cast<int>(cr.osc_commands().size()));
+  // F6 fire-then-commit: the startCapture WAS fired (the fire confirms first), THEN the durable
+  // commit (advance) failed, so each cam is rolled back with a stopCapture — no one-sided clip left
+  // rolling. (This is the Victor-faithful order; before F6 the abort happened before the fire.)
+  for (MockConn *m : {&cl, &cr}) {
+    const auto cmds = m->osc_commands();
+    TEST_ASSERT_EQUAL(2, static_cast<int>(cmds.size()));
+    TEST_ASSERT_EQUAL_STRING("camera.startCapture", cmds[0].c_str());
+    TEST_ASSERT_EQUAL_STRING("camera.stopCapture", cmds[1].c_str());
+  }
+}
+
+// ---- F6: start_confirmed() returns the startCapture connect-ack; void start() routes through it
+// (no double-fire); HARD RULE 2 (no OSC body read) holds; no-connect → false (under-confirm) ----
+void test_x3_start_confirmed_connect_ack() {
+  CameraRegistry reg;
+  reg.set_map(MacSideMap::from_allowlist("aa:aa:aa:aa:aa:aa,bb:bb:bb:bb:bb:bb"));
+  reg.update({{"aa:aa:aa:aa:aa:aa", "192.168.42.2"}, {"bb:bb:bb:bb:bb:bb", "192.168.42.3"}});
+  NoopDelayer d;
+  CannedEnv env;
+
+  // connect-ack TRUE: a normal fire confirms (the startCapture socket connected + wrote).
+  MockConn ok;
+  X3CaptureDevice left("left", reg, ok, d, env);
+  TEST_ASSERT_TRUE(left.start_confirmed());
+  const auto cmds = ok.osc_commands();
+  TEST_ASSERT_EQUAL(1, static_cast<int>(cmds.size())); // exactly one startCapture
+  TEST_ASSERT_EQUAL_STRING("camera.startCapture", cmds[0].c_str());
+  TEST_ASSERT_FALSE(ok.any_read_on(kOscPort)); // HARD RULE 2: the fire never reads the OSC body
+
+  // void start() routes through the SAME single fire (no double-fire).
+  MockConn ok2;
+  X3CaptureDevice left2("left", reg, ok2, d, env);
+  left2.start();
+  TEST_ASSERT_EQUAL(1, static_cast<int>(ok2.osc_commands().size()));
+
+  // connect-ack FALSE: the OSC socket never connects → start_confirmed() is false (the fire did not
+  // land on this cam — core counts it as a cam that did not start).
+  MockConn bad;
+  bad.fail_connect = true;
+  X3CaptureDevice right("right", reg, bad, d, env);
+  TEST_ASSERT_FALSE(right.start_confirmed());
 }
 
 // ---- OQ-10: core's projected env keys cover everything discardd sources (with the flagged gap)
@@ -583,6 +621,7 @@ int main(int, char **) {
   RUN_TEST(test_provisioning_parse);
   RUN_TEST(test_coordinator_two_hard_rules_and_oq1);
   RUN_TEST(test_persist_before_advance_under_nvs_failure);
+  RUN_TEST(test_x3_start_confirmed_connect_ack);
   RUN_TEST(test_env_key_conformance_with_discardd);
   return UNITY_END();
 }

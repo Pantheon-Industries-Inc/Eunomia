@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -30,14 +31,17 @@
 #include "ordinal_log.h"
 #include "seams.h"
 #include "sidecar_assembly.h"
+#include "start_confirmable.h"
 #include "trigger_state_machine.h"
 
 namespace eunomia::core {
 
-// The phantom-press gate outcome (CONTRACT §3.6 / SPEC §1.8). A START commits only when BOTH
-// cameras are present at L2 (sent==2); 0 present = phantom (dropped); 1 present = one-sided (GRABAR
-// locked).
-enum class GateOutcome : std::uint8_t { Committed, PhantomDropped, OneSidedRefused };
+// The phantom-press gate / fire-confirm outcome (CONTRACT §3.6 / SPEC §1.8). A START commits only
+// when BOTH cameras are present at L2 (sent==2) AND their startCapture fires confirm; 0 present =
+// phantom (dropped); 1 present = one-sided (GRABAR locked); cams present but the fire did NOT
+// confirm on enough of them — or the durable commit failed — = StartFailed (the F6 fire-then-commit
+// rollback: the cams that started are stopped and NO ordinal is advanced).
+enum class GateOutcome : std::uint8_t { Committed, PhantomDropped, OneSidedRefused, StartFailed };
 
 // present_count == 0 → PhantomDropped; 0 < present_count < required → OneSidedRefused; else
 // Committed.
@@ -59,6 +63,12 @@ public:
   // Per-shift identity/task context (set after sign-in).
   void set_assignment(const Assignment &a);
   void set_fob_session_id(const std::string &id) { assignment_.fob_session_id = id; }
+
+  // F6 fire-confirm side-channel (opt-in, non-contract). Register the StartConfirmable for a side
+  // so trigger() fires via the connect-ack and counts started cams; a side with no confirmer falls
+  // back to the void CaptureDevicePort::start() (counted as started — the F1 behaviour). The
+  // composition root registers the concrete X3CaptureDevice it already holds.
+  void set_confirmer(const std::string &side, StartConfirmable *confirmer);
 
   // ---- CoordinatorPort (the six seam operations, CONTRACT §1.6) ----
   std::string mint_episode_id() override;
@@ -93,6 +103,9 @@ public:
 private:
   eunomia::CaptureDevicePort *device(const std::string &name) const;
   static bool contains(const std::vector<std::string> &v, const std::string &name);
+  // Best-effort stop of every present cam we just fired — the fire-confirm/commit rollback (no
+  // one-sided clip left rolling; Victor's camStopAll("error")). Fire-and-forget, never blocks.
+  void abort_fire(const std::vector<std::string> &cameras, const std::vector<std::string> &present);
 
   Deps deps_;
   Fleet fleet_;
@@ -101,6 +114,7 @@ private:
   TriggerStateMachine sm_;
   DurableOrdinal ordinal_;
   OrdinalLog ordinal_log_;
+  std::map<std::string, StartConfirmable *> confirmers_; // side → fire-confirm channel (F6, opt-in)
 
   std::string pending_episode_id_; // minted by mint_episode_id, consumed by trigger
   std::string pending_bimanual_id_;

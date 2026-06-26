@@ -16,17 +16,23 @@
 #include "conn.h"
 #include "eunomia_capture_device_port.h"
 #include "presence.h"
+#include "start_confirmable.h"
 
 namespace eunomia::transport {
 
-class X3CaptureDevice : public eunomia::CaptureDevicePort {
+class X3CaptureDevice : public eunomia::CaptureDevicePort, public eunomia::core::StartConfirmable {
 public:
   // `side` = this device's fleet handle ("left"/"right"); the registry resolves it to a live IP.
   X3CaptureDevice(std::string side, CameraRegistry &reg, Conn &conn, Delayer &delayer,
                   EnvProvider &env);
 
   // Push current_assignment.env (telnet) THEN fire camera.startCapture (OSC, direct — HARD RULE 2).
+  // The contract port is void; it routes through start_confirmed() (the two never double-fire).
   void start() override;
+  // F6 fire-confirm: same push+fire, returning the startCapture connect-ack (true = delivered). The
+  // connect-ack is a TCP connect+write, NEVER a body read, so HARD RULE 2 holds. "" IP (not present
+  // at L2) → false. This is the signal core counts to roll back an under-confirmed take.
+  bool start_confirmed() override;
   // Fire camera.stopCapture (OSC, fire-and-forget).
   void stop() override;
   // Recover the just-written clip filename via telnet `ls -t … grep VID_` (never the OSC reply).

@@ -11,18 +11,25 @@ X3CaptureDevice::X3CaptureDevice(std::string side, CameraRegistry &reg, Conn &co
     : side_(std::move(side)), reg_(reg), conn_(conn), d_(delayer), env_(env) {}
 
 void X3CaptureDevice::start() {
+  (void)start_confirmed(); // the contract port discards the ack; core reads it via StartConfirmable
+}
+
+bool X3CaptureDevice::start_confirmed() {
   const std::string ip = reg_.ip_for(side_);
   if (ip.empty()) {
-    return; // not present at L2 — nothing to fire (core's gate already vetted presence)
+    return false; // not present at L2 — nothing fired (core's gate already vetted presence)
   }
   // 1) Identity/assignment FIRST, so discardd has the label for the clip it's about to make. The
   // env
   //    CONTENT is core's (project_assignment_env via the provider); transport only pushes the
-  //    bytes.
+  //    bytes. A failed env-write is NON-FATAL (the clip is the primary artifact; a missing label
+  //    routes to needs-review) — we still fire, mirroring Victor's camStartAll.
   std::string out;
   telnet_run(conn_, d_, ip, build_write_file_cmd(kAssignmentEnvPath, env_.assignment_env()), out);
-  // 2) Fire startCapture DIRECTLY — NO per-take arm (discardd locks video mode). HARD RULE 2.
-  osc_fire(conn_, d_, ip, osc_command_json("camera.startCapture"));
+  // 2) Fire startCapture DIRECTLY — NO per-take arm (discardd locks video mode). HARD RULE 2. The
+  //    osc_fire connect-ack (connected + wrote, never a body read) IS the fire confirmation
+  //    Victor's camStartAll counts.
+  return osc_fire(conn_, d_, ip, osc_command_json("camera.startCapture"));
 }
 
 void X3CaptureDevice::stop() {

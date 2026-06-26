@@ -114,6 +114,17 @@ deliberate moment during the first session. Both are quick.
 largely covers the other. Downstream QC + pairing is still a second backstop, but the point is to
 catch it live.)
 
+- **Rapid re-START sidecar race (the GATE_SAVING question, F6).** The fob never confirms that
+  discardd materialized the PRIOR take's on-card `.pantheon.json` before the next take begins. The
+  ui DelayedButton lockout covers only the in-flight finalize window (the STOP/sidecar-push action),
+  NOT discardd's *asynchronous* stamp a moment later — so a fast re-START could leave the prior clip
+  unlabeled. (We deliberately did NOT speculatively port Victor's `priorSidecarsReady` poll.)
+  *Induce:* STOP a take, then START the next as fast as the UI allows (back-to-back), repeatedly.
+  *Pass:* each prior clip's `.pantheon.json` is present on every card before the next take's clip is
+  created — no unlabeled/mislabeled prior clip. *Fail:* a prior clip lands unlabeled → THEN implement
+  a persistent GATE_SAVING (a `sidecars_pending` flag + a press-time telnet `test -f .pantheon.json`
+  poll, mirroring Victor). The implementation is conditional on THIS result — not done speculatively.
+
 ---
 
 ## D. Provisioning + ship gate (the real pre-deploy gate)
@@ -165,6 +176,7 @@ is already enforced per kit.
 | Telemetry not in take | first back-to-back | ☐ ok ☐ bled | hop inside a take window? | defer flush to idle gap |
 | Silent-stop → recording_suspect | induced | ☐ caught ☐ missed | stayed associated? flagged? | tune grow/size threshold |
 | No-SD start | induced | ☐ caught ☐ missed | flagged? | same threshold fix |
+| Rapid re-START sidecar race (GATE_SAVING, F6) | induced | ☐ ok ☐ raced | prior `.pantheon.json` on-card before next clip? | raced = add persistent GATE_SAVING (press-time `test -f` poll) |
 | Per-kit ship gate | each kit | ☐ pass ☐ block | allowlist + identity + fw + time | block until provisioned right |
 
 **Decision rule (revised).** There is no separate soak gating the fleet buy — Victor's run + the

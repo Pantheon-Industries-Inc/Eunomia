@@ -40,6 +40,10 @@ Coordinator::Coordinator(Deps deps, Fleet fleet, std::size_t required_cameras)
 
 void Coordinator::set_assignment(const Assignment &a) { assignment_ = a; }
 
+void Coordinator::set_confirmer(const std::string &side, StartConfirmable *confirmer) {
+  confirmers_[side] = confirmer;
+}
+
 bool Coordinator::contains(const std::vector<std::string> &v, const std::string &name) {
   for (const auto &x : v) {
     if (x == name) {
@@ -56,6 +60,19 @@ eunomia::CaptureDevicePort *Coordinator::device(const std::string &name) const {
     }
   }
   return nullptr;
+}
+
+void Coordinator::abort_fire(const std::vector<std::string> &cameras,
+                             const std::vector<std::string> &present) {
+  // Stop every cam we just fired — Victor's camStopAll("error") on a short start, so no one-sided
+  // clip is left rolling. Best-effort + fire-and-forget; no ordinal/take side effects here.
+  for (const auto &cam : cameras) {
+    if (contains(present, cam)) {
+      if (auto *dev = device(cam)) {
+        dev->stop();
+      }
+    }
+  }
 }
 
 std::string Coordinator::mint_episode_id() {
@@ -88,28 +105,69 @@ bool Coordinator::trigger(const std::vector<std::string> &cameras) {
     return false;
   }
 
-  // 3) Commit. Mint the episode if the app did not call mint_episode_id() first.
+  // 3) Build the take with the PROSPECTIVE ordinal (current + 1, NOT yet committed). start() pushes
+  //    current_assignment.env projected from take() (OQ-1), so the take's episode_id / bimanual /
+  //    ordinal MUST be populated BEFORE the fire — but the durable ordinal is advanced only AFTER
+  //    the fire confirms (FIRE-THEN-COMMIT, mirroring Victor's camStartAll→logStart order). A
+  //    failed fire therefore NEVER advances the ordinal: nothing to roll back, no skip/reuse, no
+  //    orphaned durable-log line (SPEC §1.8 / the F5 durable-log coordination).
   if (pending_episode_id_.empty()) {
     mint_episode_id();
   }
-  // Durable-before-advance: persist the ordinal BEFORE it advances. A flash failure returns 0 (the
-  // unknown sentinel) and does NOT commit — never burns/reuses an ordinal (SPEC §1.8).
-  const std::int64_t ord = ordinal_.advance();
-  if (ord <= 0) {
-    sm_.on_start_aborted();
-    last_outcome_ = GateOutcome::PhantomDropped;
-    return false;
-  }
-
+  const std::int64_t prospective = ordinal_.current() + 1;
   take_ = TakeContext{};
   take_.episode_id = pending_episode_id_;
   take_.bimanual_episode_id = pending_bimanual_id_;
-  take_.episode_ordinal = ord;
+  take_.episode_ordinal = prospective;
   take_.started_unix = deps_.clock->unix_seconds_frac();
   take_.display_id = make_display_id(deps_.clock->unix_seconds(), assignment_.operator_id,
-                                     assignment_.station_id, ord);
-  pending_episode_id_.clear();
-  pending_bimanual_id_.clear();
+                                     assignment_.station_id, prospective);
+
+  // 4) Fire the present cameras, serialized (the wifiLock serialization is transport's, F2), and
+  //    CONFIRM each fire via the startCapture connect-ack (the StartConfirmable side-channel — the
+  //    contract port's start() is void). A side with no registered confirmer falls back to the void
+  //    start() and is counted as started (the F1 behaviour for adapters/tests that don't confirm).
+  sm_.begin_firing(); // arming → starting (the ~3 s pipeline re-init window)
+  std::size_t started = 0;
+  for (const auto &cam : cameras) {
+    if (!contains(present, cam)) {
+      continue;
+    }
+    auto it = confirmers_.find(cam);
+    if (it != confirmers_.end() && it->second != nullptr) {
+      if (it->second->start_confirmed()) { // connect-ack (NOT a body read; HARD RULE 2)
+        ++started;
+      }
+    } else if (auto *dev = device(cam)) {
+      dev->start(); // startCapture directly — no per-take arm (HARD RULE 2); no ack channel
+      ++started;
+    }
+  }
+
+  // 5) Fire-confirm rollback: not enough cams actually started. Stop any that did (no one-sided
+  // clip
+  //    left rolling) and refuse the take with NO ordinal advance. recording_suspect stays the
+  //    STOP-time backstop; this is the loud press-time primary.
+  if (started < required_cameras_) {
+    abort_fire(cameras, present);
+    sm_.on_start_aborted();
+    take_ = TakeContext{};
+    last_outcome_ = GateOutcome::StartFailed;
+    return false;
+  }
+
+  // 6) COMMIT. Durable-before-advance: persist the ordinal now that the fire is confirmed. A flash
+  //    failure returns 0 (the unknown sentinel) and does NOT commit — roll back the fire too, never
+  //    burn/reuse an ordinal (SPEC §1.8).
+  const std::int64_t ord = ordinal_.advance();
+  if (ord <= 0) {
+    abort_fire(cameras, present);
+    sm_.on_start_aborted();
+    take_ = TakeContext{};
+    last_outcome_ = GateOutcome::StartFailed;
+    return false;
+  }
+  take_.episode_ordinal = ord; // == prospective under the single-threaded wifi-lock
 
   // The fob-side ordinal-join backup (the §1.7 fail-safe; lives on the fob, not the card).
   OrdinalLogEntry e;
@@ -122,15 +180,8 @@ bool Coordinator::trigger(const std::vector<std::string> &cameras) {
   ordinal_log_.append(e);
   queue_event(pending_, "take_start", take_, sent);
 
-  // 4) Fire the present cameras, serialized (the wifiLock serialization is transport's, F2).
-  sm_.begin_firing(); // arming → starting (the ~3 s pipeline re-init window)
-  for (const auto &cam : cameras) {
-    if (contains(present, cam)) {
-      if (auto *dev = device(cam)) {
-        dev->start(); // startCapture directly — no per-take arm (HARD RULE 2)
-      }
-    }
-  }
+  pending_episode_id_.clear();
+  pending_bimanual_id_.clear();
   sm_.on_started(); // starting → recording
   last_outcome_ = GateOutcome::Committed;
   return true;
