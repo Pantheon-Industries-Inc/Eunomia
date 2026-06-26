@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.engine import Connection
 
 from eunomia_edge_store import allocator, importer, resolvers, schema, store
@@ -64,8 +64,13 @@ def test_append_event_is_append_only_idempotent(conn: Connection) -> None:
         "payload": {"camera_id": "CAM-1"},
     }
     store.append_event(conn, event)
-    store.append_event(conn, event)  # idempotent on event_id
-    assert store.count(conn, "operational_event") == 1
+    store.append_event(conn, event)  # idempotent on event_id (conflict → no-op)
+    # Count by event_id, not the whole table — the session DB may hold other tests' committed events.
+    log = schema.TABLES["operational_event"]
+    n = conn.execute(
+        select(func.count()).select_from(log).where(log.c.event_id == "evt-1")
+    ).scalar_one()
+    assert n == 1
 
 
 def test_allocator_is_monotonic_retire_not_reuse(conn: Connection) -> None:

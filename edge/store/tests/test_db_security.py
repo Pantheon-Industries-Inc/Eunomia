@@ -55,34 +55,36 @@ def test_grants_are_least_privilege(engine: Engine) -> None:
         assert not _has(conn, "eunomia_reader", "UPDATE", "person")
 
 
-def _seed_audit_row(engine: Engine, table: str) -> None:
-    with engine.begin() as conn:
-        if table == "operational_event":
-            store.append_event(
-                conn,
-                {
-                    "schema": "eunomia-operational-event/v1",
-                    "event_id": "evt-audit",
-                    "event_type": "station_registered",
-                    "entity": "station",
-                    "entity_id": "1000",
-                },
+def _seed_audit_row(conn: sa.Connection, table: str) -> None:
+    """Insert one row using the GIVEN connection (no commit of its own) so the mutation that follows
+    in the same transaction can be aborted by the trigger — leaving nothing committed (test isolation).
+    """
+    if table == "operational_event":
+        store.append_event(
+            conn,
+            {
+                "schema": "eunomia-operational-event/v1",
+                "event_id": "evt-audit",
+                "event_type": "station_registered",
+                "entity": "station",
+                "entity_id": "1000",
+            },
+        )
+    elif table == "camera_id_ledger":
+        conn.execute(
+            schema.camera_id_ledger.insert().values(
+                camera_id="CAM-audit", body_serial="BS"
             )
-        elif table == "camera_id_ledger":
-            conn.execute(
-                schema.camera_id_ledger.insert().values(
-                    camera_id="CAM-audit", body_serial="BS"
-                )
+        )
+    elif table == "import_backup":
+        conn.execute(
+            schema.import_backup.insert().values(
+                import_run_id="r",
+                entity="station",
+                natural_key={"x": 1},
+                action="created",
             )
-        elif table == "import_backup":
-            conn.execute(
-                schema.import_backup.insert().values(
-                    import_run_id="r",
-                    entity="station",
-                    natural_key={"x": 1},
-                    action="created",
-                )
-            )
+        )
 
 
 # A settable column per audit table (the trigger fires on any UPDATE; this just makes a valid SET).
@@ -95,13 +97,16 @@ _UPDATE_COL = {
 
 @pytest.mark.parametrize("table", schema.AUDIT_TABLES)
 def test_audit_tables_reject_update_and_delete(engine: Engine, table: str) -> None:
-    _seed_audit_row(engine, table)
     t = schema.metadata.tables[table]
-    with pytest.raises(sa.exc.DBAPIError):  # the BEFORE UPDATE/DELETE trigger RAISES
+    # Seed + mutate in ONE transaction: the BEFORE UPDATE/DELETE trigger RAISES and aborts the whole
+    # transaction, so the seed row never commits (no cross-test pollution).
+    with pytest.raises(sa.exc.DBAPIError):
         with engine.begin() as conn:
+            _seed_audit_row(conn, table)
             conn.execute(sa.update(t).values(**{_UPDATE_COL[table]: "x"}))
     with pytest.raises(sa.exc.DBAPIError):
         with engine.begin() as conn:
+            _seed_audit_row(conn, table)
             conn.execute(sa.delete(t))
 
 
