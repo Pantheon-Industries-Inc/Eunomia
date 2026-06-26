@@ -19,6 +19,8 @@ class Episode:
     side: str = ""
     person_id: str = ""
     task_id: str = ""
+    task_version: int | None = None
+    rotation_id: str | None = None
     station_id: str = ""
     session_id: str = ""
     calibration_id: str | None = None
@@ -54,6 +56,8 @@ _TABLES = _semantics.Tables(
         ("bimanual_episode_id", "string"),
         ("episode_ordinal", "int"),
         ("person_id", "string"),
+        ("task_version", "int"),
+        ("rotation_id", "string"),
         ("calibration_id", "string"),
         ("capture_stack_id", "string"),
         ("ingested_at", "string"),
@@ -77,6 +81,8 @@ _TABLES = _semantics.Tables(
         "side",
     ],
     nullable=[
+        "task_version",
+        "rotation_id",
         "calibration_id",
         "capture_stack_id",
         "ingested_at",

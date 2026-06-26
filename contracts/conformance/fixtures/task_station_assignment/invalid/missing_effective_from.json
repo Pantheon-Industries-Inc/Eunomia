@@ -1,0 +1,7 @@
+{
+  "schema": "eunomia-task-station-assignment/v1",
+  "assignment_id": "asn_001",
+  "site_id": "SF-3",
+  "station_id": "1003",
+  "task_id": "fold_towel"
+}

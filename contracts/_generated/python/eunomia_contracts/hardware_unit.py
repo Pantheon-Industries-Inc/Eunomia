@@ -29,6 +29,10 @@ class HardwareUnit:
     status: str = ""
     kit_id: str | None = None
     side: str = ""
+    camera_id: str | None = None
+    fob_id: str | None = None
+    board: str | None = None
+    mount: str | None = None
     provisioning: Provisioning = field(default_factory=Provisioning)
 
 
@@ -50,6 +54,10 @@ _TABLES = _semantics.Tables(
         ("status", "string"),
         ("kit_id", "string"),
         ("side", "string"),
+        ("camera_id", "string"),
+        ("fob_id", "string"),
+        ("board", "string"),
+        ("mount", "string"),
         ("provisioning", "object"),
         ("provisioning.wifi_ssid", "string"),
         ("provisioning.wifi_ap", "string"),
@@ -72,6 +80,10 @@ _TABLES = _semantics.Tables(
         "order_id",
         "hardware_version",
         "kit_id",
+        "camera_id",
+        "fob_id",
+        "board",
+        "mount",
     ],
     cond_pattern="",
     cond_fields=[],

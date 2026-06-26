@@ -11,6 +11,7 @@ from eunomia_contracts import _semantics
 class CaptureStack:
     schema: str = ""
     capture_stack_id: str = ""
+    kit_id: str | None = None
     version: int = 0
     modality: str = ""
     camera_model: str = ""
@@ -20,6 +21,8 @@ class CaptureStack:
     gripper_hw: str | None = None
     sd_model: str | None = None
     coordinator_sw: str = ""
+    effective_from: str | None = None
+    effective_to: str | None = None
 
 
 SCHEMA_ID = "eunomia-capture-stack/v1"
@@ -30,6 +33,7 @@ _TABLES = _semantics.Tables(
         ("capture_stack_id", "string"),
     ],
     warn=[
+        ("kit_id", "string"),
         ("version", "int"),
         ("modality", "string"),
         ("camera_model", "string"),
@@ -39,6 +43,8 @@ _TABLES = _semantics.Tables(
         ("gripper_hw", "string"),
         ("sd_model", "string"),
         ("coordinator_sw", "string"),
+        ("effective_from", "string"),
+        ("effective_to", "string"),
     ],
     enums={
         "modality": ["umi", "teleop"],
@@ -48,8 +54,11 @@ _TABLES = _semantics.Tables(
         "capture_stack_id",
     ],
     nullable=[
+        "kit_id",
         "gripper_hw",
         "sd_model",
+        "effective_from",
+        "effective_to",
     ],
     cond_pattern="",
     cond_fields=[],

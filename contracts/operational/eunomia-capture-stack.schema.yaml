@@ -10,6 +10,19 @@
 # EVENT-SOURCING (B-8/B-9): a firmware update = a new stack version / `unit_firmware_updated`
 # operational-event, so "what stack was in effect when this episode was shot" is answerable as-of.
 # TARGETS: [jsonschema, python] (firmware never reads the operational model, OQ-10).
+#
+# PER-KIT + TIME-RANGED (Run 0e; DECISION_REGISTER 2026-06-25 "Boot-uplink…" thread 3 + "Daily
+# hardware-setup" B-9): the hardware config is PER-KIT, recorded at provisioning, event-sourced +
+# TIMESTAMPED so "kit 42: gripper v2→v3 @ date" is reconstructable as-of. `kit_id` ties the stack to the
+# kit; `effective_from`/`effective_to` (null = current) are the OQ-6 validity range. A gripper swap (NO
+# firmware reflash) is a config-update flow that emits a timestamped `kit_config_changed` operational-
+# event + a new stack version — distinct from `unit_firmware_updated` (a reflash).
+# RECONCILE (resolved-at-ingest, NOT a forced sidecar id): the card carries the COMPONENTS (sidecar
+# provenance.camera_firmware/fob_build/kit_version/modality + identity.kit_id/calibration_id) — NOT a
+# pre-assembled capture_stack_id. `capture_stack_id` is RESOLVED AT INGEST from (kit_id + components +
+# timestamp) against this registry; the episode's capture_stack_id is the resolved+stored value
+# (warn/nullable). The schema does NOT force a capture_stack_id onto the sidecar — this is already true;
+# the stale bit is only the B-9 prose ("the fob assembles capture_stack_id at session start").
 
 schema: eunomia-capture-stack/v1
 title: CaptureStack
@@ -26,7 +39,12 @@ fields:
     type: string
     required: hard
     non_empty: true
-    description: The capture-stack identity (the anchor; referenced from the episode).
+    description: The capture-stack identity (the anchor; RESOLVED AT INGEST from kit_id+components+timestamp, then referenced from the episode — NOT carried on the card).
+  - name: kit_id
+    type: string
+    required: warn
+    nullable: true
+    description: The kit this config belongs to (per-kit hardware config; enables "kit 42 over time", Run 0e). References eunomia-kit.kit_id.
   - name: version
     type: int
     required: warn
@@ -66,3 +84,13 @@ fields:
     type: string
     required: warn
     description: Coordinator/Eunomia software version (discardd).
+  - name: effective_from
+    type: string
+    required: warn
+    nullable: true
+    description: Start of this stack version's validity (OQ-6 as-of range; "kit 42 ran gripper v2 from date X").
+  - name: effective_to
+    type: string
+    required: warn
+    nullable: true
+    description: End of validity; null = the current stack for the kit (OQ-6).

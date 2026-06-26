@@ -13,13 +13,27 @@
       "type": "string"
     },
     "capture_stack_id": {
-      "description": "The capture-stack identity (the anchor; referenced from the episode).",
+      "description": "The capture-stack identity (the anchor; RESOLVED AT INGEST from kit_id+components+timestamp, then referenced from the episode \u2014 NOT carried on the card).",
       "minLength": 1,
       "type": "string"
     },
     "coordinator_sw": {
       "description": "Coordinator/Eunomia software version (discardd).",
       "type": "string"
+    },
+    "effective_from": {
+      "description": "Start of this stack version's validity (OQ-6 as-of range; \"kit 42 ran gripper v2 from date X\").",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "effective_to": {
+      "description": "End of validity; null = the current stack for the kit (OQ-6).",
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "fob_board": {
       "description": "Fob board type.",
@@ -31,6 +45,13 @@
     },
     "gripper_hw": {
       "description": "UMI gripper hardware version.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "kit_id": {
+      "description": "The kit this config belongs to (per-kit hardware config; enables \"kit 42 over time\", Run 0e). References eunomia-kit.kit_id.",
       "type": [
         "string",
         "null"

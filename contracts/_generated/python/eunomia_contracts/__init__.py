@@ -13,8 +13,10 @@ from eunomia_contracts import person
 from eunomia_contracts import release
 from eunomia_contracts import session
 from eunomia_contracts import sidecar
+from eunomia_contracts import station
 from eunomia_contracts import sync_delta
 from eunomia_contracts import task
+from eunomia_contracts import task_station_assignment
 from eunomia_contracts import telemetry_event
 from eunomia_contracts.calibration import Calibration
 from eunomia_contracts.capture_stack import CaptureStack
@@ -27,8 +29,10 @@ from eunomia_contracts.person import Person
 from eunomia_contracts.release import Release
 from eunomia_contracts.session import Session
 from eunomia_contracts.sidecar import Sidecar
+from eunomia_contracts.station import Station
 from eunomia_contracts.sync_delta import SyncDelta
 from eunomia_contracts.task import Task
+from eunomia_contracts.task_station_assignment import TaskStationAssignment
 from eunomia_contracts.telemetry_event import TelemetryEvent
 
 __all__ = [
@@ -43,8 +47,10 @@ __all__ = [
     "Release",
     "Session",
     "Sidecar",
+    "Station",
     "SyncDelta",
     "Task",
+    "TaskStationAssignment",
     "TelemetryEvent",
     "calibration",
     "capture_stack",
@@ -57,7 +63,9 @@ __all__ = [
     "release",
     "session",
     "sidecar",
+    "station",
     "sync_delta",
     "task",
+    "task_station_assignment",
     "telemetry_event",
 ]

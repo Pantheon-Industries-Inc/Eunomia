@@ -7,6 +7,16 @@
 # the version axis; effective_from/effective_to is the version's validity range. The resolver is a
 # later run (documented, not implemented).
 #
+# CATALOG (Run 0e; DECISION_REGISTER 2026-06-25 "Task-setup flow"): the stored, global, versioned menu.
+# A task carries ONE-OR-MORE PROMPT VARIANTS selected by `rotation_id` — modeled as ROWS sharing
+# `task_id`, differing by `rotation_id` (stays in-DSL; no array-of-objects). The NATURAL KEY is
+# (task_id, version, rotation_id); the EPISODE pins all three (episode.task_id + task_version +
+# rotation_id) so editing the catalog never retroactively changes a past episode. `task_id` is stable +
+# GLOBAL (Fold-Towel = its prompt everywhere). LEGACY: `station_id` below is the OLD hardcoded station↔
+# task coupling — now SUPERSEDED by the time-ranged eunomia-task-station-assignment entity (the
+# authoritative link). Kept for additive-safety (§5: never remove a field), documented as
+# non-authoritative; do not resolve a task's station through it.
+#
 # TASK PRECEDENCE (§3.5, documented — NOT a single-record rule): NAND pantheon_current_task.env →
 # overridden by SD current_assignment.env → else none → the order-join supplies station/prompt at
 # ingest. `task_source` (nand_staged|sd_assignment|none) already lives on the sidecar; it records which
@@ -47,7 +57,7 @@ fields:
   - name: station_id
     type: string
     required: warn
-    description: Station identity.
+    description: LEGACY — the old hardcoded station↔task coupling. SUPERSEDED by eunomia-task-station-assignment (the authoritative link). Kept additive (§5); non-authoritative.
   - name: category
     type: string
     required: warn

@@ -1,0 +1,62 @@
+# Eunomia operational entity — station (a REGISTERED, first-class capture station).
+#
+# AUTHORITY: the task-setup-flow decision (DECISION_REGISTER 2026-06-25 "Task-setup flow") + the
+# post-F3 Run-0e scope. A station is a registered, stable, SITE-SCOPED physical identity — registered
+# once, not free-chosen. The registry is what makes "two supervisors can't pick the same number"
+# STRUCTURAL rather than a convention. Until 0e, `station_id` was ONLY a string field on the sidecar/
+# episode/task/session; this makes the station first-class so the registry + the assignment reference it.
+#
+# IDENTITY (SITE-SCOPED): `station_id` is the per-site station number the operator types at the fob,
+# carried on the card AS A STRING (sidecar identity.station_id) — so it is the anchor here too (1:1, no
+# separate station_number). `site_id` SCOPES it (also on the card, provenance.site_id): a bare station_id
+# collides across sites, which is exactly what the registry exists to prevent. GLOBAL identity /
+# uniqueness / resolution = (site_id, station_id) — a CROSS-RECORD allocation property (the allocator
+# never re-issues a retired (site_id, station_id)), NOT a single-record rule (same treatment as the §3.4
+# serials + the camera_id crosswalk: the schema models the SHAPE, the console owns the ALLOCATION).
+#
+# OQ-A (open-string + WARN-check): `status` is a vocabulary "closed by today's list" (a new lifecycle
+# state is plausible) → OPEN string + a WARN-level value-set check in _semantics vs {active, retired},
+# NEVER a hard enum (a hard enum would be a §5 narrowing). RETIRE-NOT-REUSE: `retired_at` marks a retired
+# station (status=retired); retirement is permanent (history stays joinable). TARGETS: [jsonschema,
+# python] (firmware never reads the operational model, OQ-10).
+
+schema: eunomia-station/v1
+title: Station
+description: A registered, site-scoped capture station — the collision-safe registry (global identity = site_id + station_id).
+targets: [jsonschema, python]
+
+fields:
+  - name: schema
+    type: string
+    required: hard
+    enum: [eunomia-station/v1]
+    description: Schema identifier; additive semver (§5).
+  - name: station_id
+    type: string
+    required: hard
+    non_empty: true
+    description: The per-site station number AS A STRING (the value the card carries; the anchor). Site-scoped — never globally unique alone.
+  - name: site_id
+    type: string
+    required: hard
+    non_empty: true
+    description: Scopes station_id (also on the card, provenance.site_id). GLOBAL identity = (site_id, station_id) — a cross-record property.
+  - name: status
+    type: string
+    required: warn
+    description: Lifecycle state — OPEN string, WARN-checked vs {active, retired} (OQ-A; retire-not-reuse). NOT a hard enum.
+  - name: label
+    type: string
+    required: warn
+    nullable: true
+    description: Optional human label for the start-of-day visual layout (e.g. "fold table, by window").
+  - name: registered_at
+    type: string
+    required: warn
+    nullable: true
+    description: When the station was registered (the start of its validity).
+  - name: retired_at
+    type: string
+    required: warn
+    nullable: true
+    description: When retired; null = active. The retire marker — a retired (site_id, station_id) is NEVER re-issued (allocation-side).

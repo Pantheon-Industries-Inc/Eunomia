@@ -52,7 +52,7 @@
       "type": "string"
     },
     "station_id": {
-      "description": "Station identity.",
+      "description": "LEGACY \u2014 the old hardcoded station\u2194task coupling. SUPERSEDED by eunomia-task-station-assignment (the authoritative link). Kept additive (\u00a75); non-authoritative.",
       "type": "string"
     },
     "task_id": {
