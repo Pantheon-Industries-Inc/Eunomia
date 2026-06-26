@@ -23,8 +23,9 @@ struct MainView {
   CamLight cam;        // the GO/NO-GO header light
   std::size_t present; // for the "CAMS n/2" readout
   std::size_t required;
-  const char *station; // header "MESA <station>"
-  const char *prompt;  // the bilingual task prompt (marquees if long)
+  const char *station;       // header "MESA <station>"
+  const char *prompt;        // the bilingual task prompt (marquees if long)
+  bool start_failed = false; // F6: a recent START was rolled back (show a brief failure sub-line)
 };
 
 // Where a tap landed on MAIN (Victor's y-band routing).

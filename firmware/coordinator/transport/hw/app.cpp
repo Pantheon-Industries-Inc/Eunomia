@@ -293,6 +293,12 @@ void ui_discard_take() {
 class AppUiHost : public eunomia::ui::UiHost {
 public:
   State core_state() override { return g_coord != nullptr ? g_coord->state() : State::Idle; }
+  bool last_start_failed() override {
+    // F6: the last trigger() rolled back (cams present but the fire didn't confirm, or the durable
+    // commit failed). Drives the brief "START FALLO" notice so a rolled-back take reads as a
+    // FAILURE, not a mis-press (loud-not-silent).
+    return g_coord != nullptr && g_coord->last_outcome() == eunomia::core::GateOutcome::StartFailed;
+  }
   std::size_t present_count() override { return g_present_cached; }
   std::size_t required_cameras() override { return 2; }
   const char *station() override { return g_assignment.station_id.c_str(); }
@@ -371,6 +377,11 @@ void app_setup() {
   g_coord = &coord;
   g_env.bind(&coord);
   coord.set_assignment(g_assignment);
+  // F6: register the fire-confirm side-channel so trigger() confirms each startCapture
+  // (connect-ack) and rolls back an under-confirmed take. The concrete X3CaptureDevices implement
+  // StartConfirmable.
+  coord.set_confirmer("left", &g_left);
+  coord.set_confirmer("right", &g_right);
   char sess[9];
   coord.set_fob_session_id(fob_session_hex(sess)); // per-boot fob-swap disambiguator (OQ-7)
 

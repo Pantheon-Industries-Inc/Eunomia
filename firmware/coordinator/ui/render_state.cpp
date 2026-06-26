@@ -13,7 +13,11 @@ MainButton main_button(State core_state, bool action_working, std::size_t presen
   // 1) The ui-owned DelayedButton in flight wins — the §1.8 lockout window. The visual is set
   // synchronously on tap (before the slow inline START/STOP), so the ack is instant; while it is in
   // flight every tap is ignored (spam-safe at the UI; core's TriggerStateMachine is the guarantee
-  // underneath). This subsumes Victor's GATE_SAVING (a prior take still finalizing).
+  // underneath). NOTE: this covers only the IN-FLIGHT finalize window (the STOP/sidecar-push action
+  // duration); it does NOT subsume Victor's GATE_SAVING — discardd's .pantheon.json materializes
+  // ASYNCHRONOUSLY after working() clears, so a fast re-START can still race an owed prior sidecar.
+  // A separate gate for that is UNVERIFIED, pending the rapid-re-START rig check (VALIDATION_PLAN
+  // §C / F6); priorSidecarsReady is deliberately NOT implemented yet.
   if (action_working) {
     return MainButton::Working;
   }

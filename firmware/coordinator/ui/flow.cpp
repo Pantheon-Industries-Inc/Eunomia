@@ -12,6 +12,11 @@ namespace {
 using eunomia::core::Press;
 using eunomia::core::State;
 
+// How long the brief "START FALLO — reintenta" notice stays on MAIN after a rolled-back START (F6).
+// Long enough to read, short enough to clear itself so the operator just retries. Not a blocking
+// splash (NOTE: loud-not-silent, but light).
+constexpr std::uint32_t kStartFailNoticeMs = 2500;
+
 // Cheap djb2 over a C string — for the MAIN redraw-on-change signature only.
 std::uint32_t str_hash(const char *s) {
   std::uint32_t h = 5381;
@@ -44,6 +49,7 @@ void Flow::render_main_now() {
   v.required = required;
   v.station = host_.station();
   v.prompt = host_.prompt();
+  v.start_failed = (start_fail_until_ms_ != 0); // F6: brief rolled-back-START notice (tick expires)
   screens::render_main(v);
 }
 
@@ -88,14 +94,21 @@ void Flow::do_toggle(std::uint32_t now) {
   toggle_btn_.complete();
   const State after = host_.core_state();
   if (before == State::Idle && after == State::Recording) {
-    take_n_++; // a START committed this session
+    take_n_++;                // a START committed this session
+    start_fail_until_ms_ = 0; // a good START clears any lingering failure notice
     force_ = true;
   } else if (before == State::Recording && after == State::Idle) {
     screen_ = Screen::Confirm; // a STOP finalized -> the GUARDAR/DESCARTAR decision
     confirm_start_ms_ = now;
     force_ = true;
+  } else if (host_.last_start_failed()) {
+    // The START was refused by the FIRE-CONFIRM rollback (cams present, but startCapture didn't
+    // confirm on enough cams, or the durable commit failed). Surface it loudly + briefly so the
+    // operator retries — distinct from a presence NO-GO, which the button already shows (F6).
+    start_fail_until_ms_ = now + kStartFailNoticeMs;
+    force_ = true;
   } else {
-    force_ = true; // the gate refused the START (still idle) — repaint MAIN
+    force_ = true; // a presence/spam refusal (still idle) — repaint MAIN, no notice
   }
 }
 
@@ -261,11 +274,18 @@ void Flow::tick(std::uint32_t now) {
   }
 
   if (screen_ == Screen::Main) {
+    // Expire the brief START-failure notice (F6). Signed elapsed compare — the deadline is stamped
+    // in the future (now + kStartFailNoticeMs), so (now - deadline) stays negative until it passes.
+    if (start_fail_until_ms_ != 0 && static_cast<std::int32_t>(now - start_fail_until_ms_) >= 0) {
+      start_fail_until_ms_ = 0;
+      force_ = true; // repaint to clear the notice
+    }
     // MAIN redraws ONLY on change (no idle flicker) — but a cam dropping (present_count) or a state
     // change must repaint. Signature mirrors exactly what MAIN draws.
     const std::uint32_t sig = static_cast<std::uint32_t>(host_.present_count()) ^
                               (static_cast<std::uint32_t>(host_.core_state()) << 8) ^
                               (toggle_btn_.working() ? 0x10000u : 0u) ^
+                              (start_fail_until_ms_ != 0 ? 0x20000u : 0u) ^
                               (str_hash(host_.station()) * 3u) ^ (str_hash(host_.prompt()) * 7u);
     if (force_ || sig != main_sig_) {
       main_sig_ = sig;

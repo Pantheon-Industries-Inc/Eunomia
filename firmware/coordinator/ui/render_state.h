@@ -32,8 +32,12 @@ enum class CamLight : std::uint8_t { Go, NoGo };
 //   red
 //                 lockout that ignores taps. This is the §1.8 instant-ack/lockout window — the
 //                 visual is set synchronously on tap BEFORE the slow inline action (the F2 no-queue
-//                 finding), NOT a freed thread. Covers Victor's GATE_SAVING (a prior take still
-//                 finalizing).
+//                 finding), NOT a freed thread. This covers the IN-FLIGHT finalize window ONLY (the
+//                 duration of the STOP/sidecar-push action) — it does NOT cover Victor's
+//                 GATE_SAVING (discardd's .pantheon.json materializes ASYNCHRONOUSLY, a moment
+//                 AFTER the action returns and working() clears, so a fast re-START can still race
+//                 an owed sidecar). Whether a separate persistent GATE_SAVING gate is needed here
+//                 is UNVERIFIED — pending a rapid-re-START rig check (VALIDATION_PLAN §C); see F6.
 //   Recording   — recording: red DETENER (the operator can ALWAYS stop, even on a mid-take cam
 //   drop).
 // Note: Victor's GATE_UPLINK is deliberately absent — the single-radio uplink-borrow is

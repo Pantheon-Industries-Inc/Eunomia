@@ -93,6 +93,28 @@ public:
   void send(const std::string &s) override { sent.push_back(s); }
 };
 
+// A device that ALSO confirms its fire via the F6 StartConfirmable side-channel. `ack` controls the
+// connect-ack; counts confirmed fires + the void start() (to prove core uses the confirmer path,
+// not the fallback) + stops (for the rollback assertions). Registered via
+// Coordinator::set_confirmer.
+class FakeConfirmableDevice : public eunomia::CaptureDevicePort, public StartConfirmable {
+public:
+  bool ack = true;
+  int confirmed_fires = 0;
+  int void_starts = 0;
+  int stops = 0;
+  void start() override { ++void_starts; }
+  bool start_confirmed() override {
+    ++confirmed_fires;
+    return ack;
+  }
+  void stop() override { ++stops; }
+  std::string read_back_filename() override { return "VID_00.insv"; }
+  std::string get_state() override { return "idle"; }
+  void set_profile(const std::string &) override {}
+  void write_sidecar(const eunomia::Sidecar &) override {}
+};
+
 } // namespace
 
 // ---- spam-safety: START only from idle; STOP only from recording (the state-machine layer) ----
@@ -173,6 +195,75 @@ void test_coordinator_phantom_press_paths() {
   TEST_ASSERT_EQUAL(1, right.starts);
   TEST_ASSERT_EQUAL_INT64(1, co.take().episode_ordinal);
   TEST_ASSERT_EQUAL(1, store.writes);
+}
+
+// ---- F6: fire-confirm rollback — cams PRESENT but the fire under-confirms → no commit, stop the
+// fired cams, StartFailed; the ordinal is never advanced so it is REUSED on the next good press
+// ----
+void test_fire_confirm_rollback_partial_start() {
+  FakeClock clk;
+  CounterRng rng;
+  FakeStore store;
+  FakePresence pres;
+  FakeConfirmableDevice left;
+  FakeConfirmableDevice right;
+  Coordinator co({&clk, &rng, &store, &pres, nullptr}, {{"left", &left}, {"right", &right}}, 2);
+  co.set_confirmer("left", &left);
+  co.set_confirmer("right", &right);
+  const std::vector<std::string> cams{"left", "right"};
+  pres.list = {"left", "right"}; // BOTH present at L2 (the presence gate passes)
+
+  left.ack = true;
+  right.ack = false; // right's startCapture never connects → the fire under-confirms
+  TEST_ASSERT_FALSE(co.trigger(cams));
+  TEST_ASSERT_EQUAL(static_cast<int>(GateOutcome::StartFailed),
+                    static_cast<int>(co.last_outcome()));
+  TEST_ASSERT_EQUAL(static_cast<int>(State::Idle), static_cast<int>(co.state())); // rolled back
+  TEST_ASSERT_EQUAL_INT64(0, co.take().episode_ordinal);                          // NO commit
+  TEST_ASSERT_EQUAL(0, store.writes);         // advance() never even attempted (no burn)
+  TEST_ASSERT_EQUAL(1, left.confirmed_fires); // both fires were attempted...
+  TEST_ASSERT_EQUAL(1, right.confirmed_fires);
+  TEST_ASSERT_EQUAL(0, left.void_starts); // ...via the confirmer, never the void fallback
+  TEST_ASSERT_EQUAL(1, left.stops);       // and the started cam was stopped (no clip rolling)
+  TEST_ASSERT_EQUAL(1, right.stops);
+  TEST_ASSERT_EQUAL(0u, co.ordinal_log().size()); // no orphaned ordinal-log entry (the F5 concern)
+
+  // The next press with both cams confirming REUSES ordinal 1 (no skip/burn — the DurableOrdinal
+  // invariant survives the rollback).
+  left.ack = true;
+  right.ack = true;
+  TEST_ASSERT_TRUE(co.trigger(cams));
+  TEST_ASSERT_EQUAL(static_cast<int>(GateOutcome::Committed), static_cast<int>(co.last_outcome()));
+  TEST_ASSERT_EQUAL_INT64(1, co.take().episode_ordinal);
+  TEST_ASSERT_EQUAL(1, store.writes);
+  TEST_ASSERT_EQUAL(1u, co.ordinal_log().size());
+}
+
+// ---- F6: fire CONFIRMS but the durable commit fails → roll back the fire too, never burn an
+// ordinal (the fire-then-commit "commit failed after a good fire" branch) ----
+void test_fire_confirmed_but_commit_fails_rolls_back() {
+  FakeClock clk;
+  CounterRng rng;
+  FakeStore store;
+  FakePresence pres;
+  FakeConfirmableDevice left;
+  FakeConfirmableDevice right;
+  Coordinator co({&clk, &rng, &store, &pres, nullptr}, {{"left", &left}, {"right", &right}}, 2);
+  co.set_confirmer("left", &left);
+  co.set_confirmer("right", &right);
+  const std::vector<std::string> cams{"left", "right"};
+  pres.list = {"left", "right"};
+  store.fail_next = true; // the durable ordinal write fails AFTER both fires confirm
+
+  TEST_ASSERT_FALSE(co.trigger(cams));
+  TEST_ASSERT_EQUAL(static_cast<int>(GateOutcome::StartFailed),
+                    static_cast<int>(co.last_outcome()));
+  TEST_ASSERT_EQUAL_INT64(0, co.take().episode_ordinal); // not committed
+  TEST_ASSERT_EQUAL(1, left.confirmed_fires);            // the fire DID happen (both acked)
+  TEST_ASSERT_EQUAL(1, right.confirmed_fires);
+  TEST_ASSERT_EQUAL(1, left.stops); // then rolled back
+  TEST_ASSERT_EQUAL(1, right.stops);
+  TEST_ASSERT_EQUAL(0u, co.ordinal_log().size()); // no orphaned log line
 }
 
 // ---- delayed-button instant-ack + lockout (the same primitive for START/STOP/settings) ----
@@ -428,6 +519,8 @@ int main(int, char **) {
   RUN_TEST(test_state_machine_spam_safety);
   RUN_TEST(test_phantom_gate_function);
   RUN_TEST(test_coordinator_phantom_press_paths);
+  RUN_TEST(test_fire_confirm_rollback_partial_start);
+  RUN_TEST(test_fire_confirmed_but_commit_fails_rolls_back);
   RUN_TEST(test_button_feedback);
   RUN_TEST(test_episode_uuid_and_display);
   RUN_TEST(test_durable_ordinal_persist_before_advance);
