@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Provisioning Console — Dashboard{% endblock %}
+{% block content %}
+<h1>Provisioning Console</h1>
+
+<div class="card">
+    <h2>Tether Check</h2>
+    <p>Verify the Mac has a non-WiFi uplink before joining a camera AP.</p>
+    <button class="btn-primary" hx-post="/api/tether-check" hx-target="#tether-result">Check Uplink</button>
+    <div id="tether-result"></div>
+</div>
+
+<div class="card">
+    <h2>Quick Links</h2>
+    <table>
+        <tr><td><a href="/provision">Camera &amp; Fob Provisioning</a></td><td>Flash identity to NAND, register in store</td></tr>
+        <tr><td><a href="/roster">Operator Roster</a></td><td>Manage persons for CONFIRM_ID</td></tr>
+        <tr><td><a href="/ship-gate">Ship Gate</a></td><td>Per-kit pass/fail before shipping</td></tr>
+    </table>
+</div>
+{% endblock %}

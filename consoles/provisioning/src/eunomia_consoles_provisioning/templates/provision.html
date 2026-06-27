@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Provisioning Console — Provision Kit{% endblock %}
+{% block content %}
+<h1>Provision Kit</h1>
+
+<div class="card">
+    <h2>Step 1: Camera Identity</h2>
+    <form hx-post="/api/tether-check" hx-target="#tether-status">
+        <button type="submit" class="btn-primary">Verify Tether</button>
+    </form>
+    <div id="tether-status"></div>
+</div>
+
+<div class="card">
+    <h2>Step 2: Camera Provisioning</h2>
+    <div class="grid-2">
+        <div>
+            <label for="kit_id">Kit ID</label>
+            <input type="text" id="kit_id" name="kit_id" placeholder="kit_001">
+        </div>
+        <div>
+            <label for="cam_ip">Camera IP</label>
+            <input type="text" id="cam_ip" name="ip" value="192.168.42.2">
+        </div>
+    </div>
+    <div class="grid-2">
+        <div>
+            <label for="side">Side</label>
+            <select id="side" name="side">
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+            </select>
+        </div>
+        <div>
+            <label for="mount">Mount</label>
+            <input type="text" id="mount" name="mount" value="wrist">
+        </div>
+    </div>
+    <label for="calibration_id">Calibration ID (optional)</label>
+    <input type="text" id="calibration_id" name="calibration_id" placeholder="cal-fleet-v1">
+    <p><em>Provision writes BOTH /pref/pantheon_camera.env and /pref/pantheon_fob.env to NAND, then verifies readback.</em></p>
+</div>
+
+<div class="card">
+    <h2>Step 3: Fob Provisioning</h2>
+    <div class="grid-2">
+        <div>
+            <label for="serial_port">USB Serial Port</label>
+            <input type="text" id="serial_port" name="serial_port" placeholder="/dev/cu.usbserial-0001">
+        </div>
+        <div>
+            <label for="site_id">Site ID</label>
+            <input type="text" id="site_id" name="site_id" placeholder="mx_santafe_office_1">
+        </div>
+    </div>
+    <p><em>Writes kit, site, cpass to fob NVS over USB serial.</em></p>
+</div>
+
+<div class="card">
+    <h2>Step 4: Lock &amp; Ship Gate</h2>
+    <p>After both cameras + fob are provisioned:</p>
+    <ol>
+        <li>cmd=lockcams — fob discovers cameras, learns serials, persists allowlist</li>
+        <li>cmd=status — verify kit_id, allow_n=2, cams=2</li>
+    </ol>
+    <p><a href="/ship-gate">Go to Ship Gate &rarr;</a></p>
+</div>
+{% endblock %}

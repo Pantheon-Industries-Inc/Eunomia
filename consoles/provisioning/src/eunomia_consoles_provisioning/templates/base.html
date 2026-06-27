@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Provisioning Console{% endblock %}</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, -apple-system, sans-serif; padding: 1rem; max-width: 900px; margin: 0 auto; background: #f8f9fa; color: #212529; }
+        h1 { font-size: 1.5rem; margin-bottom: 1rem; }
+        h2 { font-size: 1.2rem; margin: 1rem 0 0.5rem; }
+        nav { display: flex; gap: 1rem; padding: 0.75rem 0; border-bottom: 2px solid #dee2e6; margin-bottom: 1.5rem; }
+        nav a { text-decoration: none; color: #495057; font-weight: 500; padding: 0.25rem 0.5rem; border-radius: 4px; }
+        nav a:hover { background: #e9ecef; }
+        nav a.active { background: #212529; color: #fff; }
+        .card { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
+        label { display: block; font-weight: 500; margin-bottom: 0.25rem; font-size: 0.9rem; }
+        input, select { width: 100%; padding: 0.5rem; border: 1px solid #ced4da; border-radius: 4px; font-size: 0.9rem; margin-bottom: 0.75rem; }
+        button { padding: 0.5rem 1.25rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; font-weight: 500; }
+        .btn-primary { background: #212529; color: #fff; }
+        .btn-primary:hover { background: #495057; }
+        .btn-danger { background: #dc3545; color: #fff; }
+        .pass { color: #198754; font-weight: 600; }
+        .fail { color: #dc3545; font-weight: 600; }
+        .warn { color: #fd7e14; font-weight: 600; }
+        .status-box { padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; }
+        .status-pass { background: #d1e7dd; border: 1px solid #a3cfbb; }
+        .status-fail { background: #f8d7da; border: 1px solid #f1aeb5; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #dee2e6; font-size: 0.9rem; }
+        th { font-weight: 600; background: #f8f9fa; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+        #result { margin-top: 1rem; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/">Dashboard</a>
+        <a href="/provision">Provision</a>
+        <a href="/roster">Roster</a>
+        <a href="/ship-gate">Ship Gate</a>
+    </nav>
+    {% block content %}{% endblock %}
+</body>
+</html>

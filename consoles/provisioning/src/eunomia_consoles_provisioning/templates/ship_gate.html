@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Provisioning Console — Ship Gate{% endblock %}
+{% block content %}
+<h1>Ship Gate</h1>
+
+<div class="card">
+    <h2>Evaluate Kit</h2>
+    <p>Paste the JSON from <code>cmd=status</code> to evaluate the per-kit ship gate.</p>
+    <label for="status_json">Status JSON</label>
+    <textarea id="status_json" name="status_json" rows="8" style="width:100%; font-family:monospace; font-size:0.85rem; padding:0.5rem; border:1px solid #ced4da; border-radius:4px;" placeholder='{"kit_id":"kit_001","cams":2,"sides":"aa:bb,cc:dd",...}'></textarea>
+    <div style="margin-top: 0.75rem;">
+        <label><input type="checkbox" id="require_time"> Require NTP sync</label>
+    </div>
+    <button class="btn-primary" style="margin-top: 0.75rem;"
+            hx-post="/api/ship-gate/evaluate"
+            hx-vals='js:{status_json: document.getElementById("status_json").value, require_time: document.getElementById("require_time").checked}'
+            hx-target="#gate-result">
+        Evaluate
+    </button>
+    <div id="gate-result"></div>
+</div>
+
+<div class="card">
+    <h2>Pass Criteria</h2>
+    <table>
+        <thead><tr><th>Check</th><th>Criterion</th></tr></thead>
+        <tbody>
+            <tr><td>kit_provisioned</td><td>kit_id is non-empty</td></tr>
+            <tr><td>cameras_locked</td><td>allow_n &ge; 2 AND cams &ge; 2</td></tr>
+            <tr><td>sides_bound</td><td>sides CSV has &ge; 2 entries</td></tr>
+            <tr><td>ntp_synced</td><td>time_set = true (optional, once per shift)</td></tr>
+        </tbody>
+    </table>
+    <p style="margin-top: 0.5rem;"><strong>SHIP</strong> = all checks pass. <strong>FAIL</strong> = explicit reason shown.</p>
+</div>
+{% endblock %}
