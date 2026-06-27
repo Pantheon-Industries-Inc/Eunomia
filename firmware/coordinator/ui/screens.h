@@ -28,6 +28,9 @@ struct MainView {
   bool start_failed = false; // F6: a recent START was rolled back (show a brief failure sub-line)
   bool time_set = false;     // F7: loud-not-silent clock indicator
   const char *clock_hhmm = nullptr; // F7: "HH:MM" local time (null when time not set)
+  bool llamar_working = false;      // F8: radio-borrow in flight (delayed button)
+  bool llamar_result = false;       // F8: show success/fail toast
+  bool llamar_ok = false;           // F8: the result (true=success, false=fail)
 };
 
 // Where a tap landed on MAIN (Victor's y-band routing).

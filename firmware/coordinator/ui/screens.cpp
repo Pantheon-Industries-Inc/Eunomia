@@ -271,16 +271,37 @@ void render_main(const MainView &v) {
       tft.drawString(rec ? "Stop recording" : "Start recording", 160, MID + 24);
     }
   }
-  // bottom row: full-width LLAMAR (call lead). KEPT in F3 (FLAG-E): the splash + a local help-event
-  // log; the dashboard "bell" POST is deferred to the god's-view uplink (SPEC §1.10).
-  tft.fillRoundRect(8, ROW_Y0, 304, ROW_Y1 - ROW_Y0, 8, C_CALL);
-  tft.setTextColor(TFT_BLACK, C_CALL);
-  tft.setTextDatum(MC_DATUM);
-  tft.setFreeFont(&FreeSansBold12pt7b);
-  tft.drawString("LLAMAR", 160, ROW_Y0 + 24);
-  tft.drawString("Call team lead", 160, ROW_Y0 + 52, 2);
-  draw_phone_icon(64, ROW_Y0 + 30, TFT_BLACK, C_CALL);
-  draw_phone_icon(256, ROW_Y0 + 30, TFT_BLACK, C_CALL);
+  // bottom row: full-width LLAMAR (call lead). F8: radio-borrow + POST with §1.8 delayed button.
+  if (v.llamar_result) {
+    // F8: brief success/fail toast (replaces the F3 blocking splash)
+    uint16_t toast_bg = v.llamar_ok ? C_GREEN : C_RED;
+    tft.fillRoundRect(8, ROW_Y0, 304, ROW_Y1 - ROW_Y0, 8, toast_bg);
+    tft.setTextColor(TFT_WHITE, toast_bg);
+    tft.setTextDatum(MC_DATUM);
+    tft.setFreeFont(&FreeSansBold12pt7b);
+    tft.drawString(v.llamar_ok ? "NOTIFICADO" : "FALLO", 160, ROW_Y0 + 24);
+    tft.drawString(v.llamar_ok ? "Lead notified" : "Call failed - reintenta", 160, ROW_Y0 + 52, 2);
+  } else if (v.llamar_working) {
+    // F8: delayed-button working state (radio borrow in flight)
+    tft.fillRoundRect(8, ROW_Y0, 304, ROW_Y1 - ROW_Y0, 8, C_CALL);
+    tft.setTextColor(TFT_BLACK, C_CALL);
+    tft.setTextDatum(MC_DATUM);
+    tft.setFreeFont(&FreeSansBold12pt7b);
+    tft.drawString("LLAMANDO", 160, ROW_Y0 + 24);
+    tft.drawString("Calling...", 160, ROW_Y0 + 52, 2);
+    draw_phone_icon(64, ROW_Y0 + 30, TFT_BLACK, C_CALL);
+    draw_phone_icon(256, ROW_Y0 + 30, TFT_BLACK, C_CALL);
+  } else {
+    // Normal idle state
+    tft.fillRoundRect(8, ROW_Y0, 304, ROW_Y1 - ROW_Y0, 8, C_CALL);
+    tft.setTextColor(TFT_BLACK, C_CALL);
+    tft.setTextDatum(MC_DATUM);
+    tft.setFreeFont(&FreeSansBold12pt7b);
+    tft.drawString("LLAMAR", 160, ROW_Y0 + 24);
+    tft.drawString("Call team lead", 160, ROW_Y0 + 52, 2);
+    draw_phone_icon(64, ROW_Y0 + 30, TFT_BLACK, C_CALL);
+    draw_phone_icon(256, ROW_Y0 + 30, TFT_BLACK, C_CALL);
+  }
   tft.setTextDatum(TL_DATUM);
 }
 
@@ -444,21 +465,8 @@ void confirm_splash_discard() { splash(c_red(), "DESCARTADO", "Archivado"); }
 void confirm_splash_error(const char *sub) { splash(c_red(), "ERROR", sub); }
 
 void call_splash() {
-  if (!g_ready) {
-    return;
-  }
-  const uint16_t C = c_call();
-  tft.fillScreen(C);
-  tft.setTextColor(TFT_BLACK, C);
-  tft.setTextDatum(MC_DATUM);
-  tft.setFreeFont(&FreeSansBold18pt7b);
-  tft.drawString("LLAMANDO", 160, 110);
-  tft.setFreeFont(&FreeSansBold9pt7b);
-  tft.drawString("Llamando al lider", 160, 152);
-  draw_phone_icon(40, 110, TFT_BLACK, C);
-  draw_phone_icon(280, 110, TFT_BLACK, C);
-  tft.setTextDatum(TL_DATUM);
-  delay(1100);
+  // F8: replaced by the delayed-button working state in render_main(). Kept as a no-op so the
+  // declaration in screens.h compiles; nothing calls it.
 }
 
 // ---- hit-tests ----
