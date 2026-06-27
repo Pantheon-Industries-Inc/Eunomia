@@ -16,13 +16,14 @@
 namespace eunomia::transport {
 
 // Per-segment byte cap. Sized to the CYD deployment board's `min_spiffs` FS partition (0x20000 =
-// 128 KB) — FLAG-I. Two segments ping-pong, so max storage = 2·48 KB = 96 KB, leaving ~32 KB for
-// LittleFS metadata/GC in the 128 KB partition. Retained window: ≥48 KB (~400 compact lines, the
-// just-after-switch floor) and up to ~96 KB (~800 lines) — i.e. ~1.6 days guaranteed, ~3 days
-// typical at ~256 takes/day. The strict 2-day/≥512-line MINIMUM would need ~164 KB (2·82 KB) and
-// does NOT fit min_spiffs; this is the largest window that fits (FLAG-I contingency). On env:esp32
-// (default partition, 1.5 MB FS) the same code has far more headroom. BENCH-VERIFY the FS region.
-inline constexpr std::size_t kEpisodeLogSegmentBytes = 48 * 1024;
+// 128 KB) — FLAG-I. Two segments ping-pong, so max storage = 2·64 KB = 128 KB, using the full
+// partition (LittleFS metadata lives in-band, not a separate reservation). F9 bumped from 48→64 KB:
+// operational records (episode started/stopped, session sign-in, station assignment) roughly double
+// the daily log volume; at ~150 bytes/record × ~530 records/day ≈ ~80 KB/day, the old 96 KB budget
+// gave only ~1.2 days. 128 KB restores the ~2-day retention window the ordinal-join backup needs.
+// On env:esp32 (default partition, 1.5 MB FS) the same code has far more headroom. If the 128 KB
+// partition proves too tight (LittleFS GC), fall back to 48 KB and accept the shorter window.
+inline constexpr std::size_t kEpisodeLogSegmentBytes = 64 * 1024;
 
 // One LittleFS file acting as a core::LogSegment. Append is FILE_APPEND + flush (durable per line);
 // clear truncates to empty (FILE_WRITE). `size_` is cached (no per-status FS hit) and recomputed at

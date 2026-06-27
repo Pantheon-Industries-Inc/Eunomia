@@ -367,6 +367,47 @@ void render_mesa(const char *num, const char *err) {
                    err, true);
 }
 
+void render_confirm_task(const char *station, const char *task_name_str, const char *prompt_str) {
+  if (!g_ready) {
+    return;
+  }
+  const uint16_t C_GREEN = c_green();
+  const uint16_t C_RED = c_red();
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setFreeFont(&FreeSansBold12pt7b);
+  char hdr[32];
+  std::snprintf(hdr, sizeof(hdr), "MESA %s", (station != nullptr) ? station : "");
+  tft.drawString(hdr, 160, 18);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setFreeFont(&FreeSansBold18pt7b);
+  String tn = (task_name_str != nullptr) ? String(task_name_str) : String("");
+  if (tft.textWidth(tn) > 300) {
+    tft.setFreeFont(&FreeSansBold12pt7b);
+  }
+  tft.drawString(tn, 160, 56);
+  tft.setTextColor(tft.color565(210, 210, 210), TFT_BLACK);
+  String pr = (prompt_str != nullptr) ? String(prompt_str) : String("");
+  if (pr.length() > 38) {
+    pr = pr.substring(0, 36) + "..";
+  }
+  tft.drawString(pr, 160, 94, 2);
+  tft.setTextColor(tft.color565(205, 205, 205), TFT_BLACK);
+  tft.drawString("Es correcto? / Is this correct?", 160, 118, 2);
+  tft.fillRoundRect(8, 138, 150, 94, 10, C_GREEN);
+  tft.setTextColor(TFT_WHITE, C_GREEN);
+  tft.setFreeFont(&FreeSansBold18pt7b);
+  tft.drawString("SI", 83, 172);
+  tft.drawString("Confirm", 83, 206, 2);
+  tft.fillRoundRect(162, 138, 150, 94, 10, C_RED);
+  tft.setTextColor(TFT_WHITE, C_RED);
+  tft.setFreeFont(&FreeSansBold18pt7b);
+  tft.drawString("NO", 237, 172);
+  tft.drawString("Otra mesa", 237, 206, 2);
+  tft.setTextDatum(TL_DATUM);
+}
+
 void tick_prompt(std::uint32_t now_ms) {
   if (!g_ready) {
     return;

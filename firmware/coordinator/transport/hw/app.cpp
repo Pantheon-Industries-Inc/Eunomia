@@ -18,10 +18,12 @@
 #include "episode_log.h"
 #include "heap_health.h"
 #include "nvs_store.h"
+#include "operational_record.h"
 #include "presence.h"
 #include "provisioning_rx.h"
 #include "sidecar_assembly.h"
 #include "softap.h"
+#include "task_config.h"
 #include "uplink.h"
 #include "wifi_conn.h"
 #include "x3_capture_device.h"
@@ -73,6 +75,9 @@ LittleFsEpisodeLog g_episode_log; // the durable §1.7 ordinal-join backup (begi
 WifiConn g_conn_left, g_conn_right, g_conn_lock;
 ArduinoDelayer g_delayer;
 Assignment g_assignment;
+eunomia::core::TaskConfig
+    g_task_config;        // F9: parsed boot-fetched task config (valid=false until parsed)
+std::string g_session_id; // F9: per-shift session id (minted at sign-in)
 AppEnvProvider g_env(g_assignment);
 X3CaptureDevice g_left("left", g_registry, g_conn_left, g_delayer, g_env);
 X3CaptureDevice g_right("right", g_registry, g_conn_right, g_delayer, g_env);
@@ -361,23 +366,71 @@ public:
     std::snprintf(buf, sizeof(buf), "%02d:%02d", t.tm_hour, t.tm_min);
     return buf;
   }
+  bool has_task_config() override { return g_task_config.valid; }
+  const char *task_name() override { return g_assignment.task_name.c_str(); }
   void record_toggle() override { toggle_record(); }
   void save_take() override { Serial.println("[ui] GUARDAR (take kept; stop-env already pushed)"); }
   void discard_take() override { ui_discard_take(); }
   void set_kit(const char *k) override { set_identity("kit", String(canonical_kit(k).c_str())); }
-  void sign_in(const char *op) override { set_identity("op", String(op)); }
-  void select_table(const char *t) override {
+  void sign_in(const char *op) override {
+    set_identity("op", String(op));
+    // F9: mint a session_id and emit a sign-in operational record.
+    char sess[13];
+    std::snprintf(sess, sizeof(sess), "s-%08x", static_cast<unsigned>(esp_random()));
+    g_session_id = sess;
+    g_assignment.session_id = g_session_id;
+    if (g_coord != nullptr) {
+      g_coord->set_assignment(g_assignment);
+      if (auto *log = &g_episode_log; log != nullptr) {
+        log->append(eunomia::core::serialize_session_signin(g_assignment, g_session_id,
+                                                            g_clock.unix_seconds()));
+      }
+    }
+    Serial.printf("[ui] SIGN-IN op=%s session=%s\n", op, sess);
+  }
+  bool resolve_station(const char *station_id) override {
+    const auto *sa = eunomia::core::resolve_assignment(g_task_config, std::string(station_id));
+    if (sa == nullptr) {
+      return false;
+    }
+    // Stage the resolved task fields into NVS + assignment (operator will confirm on ConfirmTask).
     Preferences p;
     p.begin("pantheon-fob", false);
-    p.putString("station", t);
-    p.putString("prompt", String("Mesa ") + t + " | Table " + t);
+    p.putString("station", station_id);
+    p.putString("prompt", sa->prompt.c_str());
     p.end();
-    reload_assignment();
+    g_assignment.station_id = station_id;
+    g_assignment.task_id = sa->task_id;
+    g_assignment.task_name = sa->task_name;
+    g_assignment.prompt = sa->prompt;
+    g_assignment.rotation_id = sa->rotation_id;
+    g_assignment.task_source = "boot_config";
+    return true;
+  }
+  void select_table(const char *t) override {
+    if (g_task_config.valid) {
+      // F9: task fields already staged by resolve_station; commit the full assignment.
+      g_assignment.station_id = t;
+      if (g_coord != nullptr) {
+        g_coord->set_assignment(g_assignment);
+      }
+      g_episode_log.append(eunomia::core::serialize_station_assignment(
+          g_assignment, g_clock.unix_seconds(), g_session_id));
+      Serial.printf("[ui] TABLE %s task=%s (boot_config)\n", t, g_assignment.task_id.c_str());
+    } else {
+      // Manual mode: no task config. Current behavior.
+      Preferences p;
+      p.begin("pantheon-fob", false);
+      p.putString("station", t);
+      p.putString("prompt", String("Mesa ") + t + " | Table " + t);
+      p.end();
+      reload_assignment();
+      Serial.printf("[ui] TABLE %s (manual, task_source=none)\n", t);
+    }
   }
   void call_lead() override {
-    // KEEP the local help-event log; the dashboard "bell" POST is DEFERRED to the god's-view live
-    // uplink (SPEC §1.10) — the radio-borrow POST path is code-disabled (DisabledUplink). (F3
-    // FLAG-E.)
+    g_episode_log.append(
+        eunomia::core::serialize_call_lead(g_assignment, g_clock.unix_seconds(), g_session_id));
     Serial.printf("[ui] CALL LEAD (help logged: kit=%s station=%s; dashboard POST deferred)\n",
                   g_assignment.kit_id.c_str(), g_assignment.station_id.c_str());
   }
@@ -501,6 +554,17 @@ void app_setup() {
     Serial.printf("[boot-uplink] heap after: largest=%u free=%u\n",
                   static_cast<unsigned>(ESP.getMaxAllocHeap()),
                   static_cast<unsigned>(ESP.getFreeHeap()));
+    // F9: parse the task-config response (if fetched). The parsed config is used by the MESA screen
+    // to resolve station→task. Parsing happens once; the config lives for the fob's lifetime (until
+    // the next battery swap / reboot refreshes it).
+    const std::string &tcr = g_boot_uplink.task_config_response();
+    if (!tcr.empty()) {
+      g_task_config = eunomia::core::parse_task_config(tcr);
+      Serial.printf("[boot-uplink] task-config: valid=%s assignments=%u roster=%u\n",
+                    g_task_config.valid ? "true" : "false",
+                    static_cast<unsigned>(g_task_config.assignments.size()),
+                    static_cast<unsigned>(g_task_config.roster.size()));
+    }
   }
 
   // SoftAP + the depot-provisioned MAC→side map (lockcams populates `sides`).

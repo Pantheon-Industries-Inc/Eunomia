@@ -2,6 +2,8 @@
 
 #include <utility>
 
+#include "operational_record.h"
+
 namespace eunomia::core {
 
 namespace {
@@ -169,6 +171,7 @@ bool Coordinator::trigger(const std::vector<std::string> &cameras) {
     e.fob_session_id = assignment_.fob_session_id;
     e.episode_id = take_.episode_id;
     deps_.episode_log->append(serialize_ordinal_entry(e));
+    deps_.episode_log->append(serialize_episode_started(assignment_, take_));
   }
 
   pending_episode_id_.clear();
@@ -233,6 +236,9 @@ bool Coordinator::stop(const std::string &reason) {
   for (const auto &entry : fleet_) {
     read_clip_filename(entry.first); // recovers the clip name + sets recording_suspect on absence
   }
+  if (deps_.episode_log != nullptr) {
+    deps_.episode_log->append(serialize_episode_stopped(take_, assignment_.kit_id));
+  }
   sm_.on_stopped(); // stopping → idle
   return true;
 }
@@ -241,6 +247,9 @@ void Coordinator::mark_archive() {
   // DESCARTAR = void+keep: a soft discard. The footage is KEPT on-card; ingest routes archive==1 to
   // the archive bucket. stop_reason stays WHY-it-ended; archive is the discard flag (§2.2).
   take_.archive = 1;
+  if (deps_.episode_log != nullptr) {
+    deps_.episode_log->append(serialize_episode_discarded(take_, assignment_.kit_id));
+  }
 }
 
 eunomia::Sidecar Coordinator::assemble_current_sidecar(const CameraInfo &cam) const {

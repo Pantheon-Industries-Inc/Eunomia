@@ -73,6 +73,12 @@ void Flow::render_current() {
   case Screen::Mesa:
     screens::render_mesa(mesa_num_.c_str(), err_.c_str());
     break;
+  case Screen::ConfirmTask: {
+    const char *tn = host_.task_name();
+    const char *pr = host_.prompt();
+    screens::render_confirm_task(mesa_num_.c_str(), tn ? tn : "", pr ? pr : "");
+    break;
+  }
   case Screen::Main:
     render_main_now();
     break;
@@ -180,6 +186,21 @@ void Flow::dispatch(int sx, int sy, std::uint32_t now) {
       force_ = true;
     }
     break;
+  case Screen::ConfirmTask:
+    if (screens::confirm_id_in_band(sy)) {
+      if (screens::confirm_id_is_yes(sx, sy)) {
+        // F9: operator confirmed the resolved task — commit station + task fields to NVS.
+        host_.select_table(mesa_num_.c_str());
+        take_n_ = 0;
+        screen_ = Screen::Main;
+      } else {
+        mesa_num_.clear();
+        err_.clear();
+        screen_ = Screen::Mesa; // re-enter station number
+      }
+      force_ = true;
+    }
+    break;
   case Screen::Registro: {
     int r, c;
     if (screens::keypad_hit(sx, sy, r, c)) {
@@ -245,10 +266,19 @@ void Flow::dispatch(int sx, int sy, std::uint32_t now) {
       } else if (screens::keypad_is_enter(r, c)) {
         if (mesa_num_.empty()) {
           err_ = "Escribe el numero de mesa / Enter table number";
+        } else if (host_.has_task_config()) {
+          // F9: server-driven resolution — resolve station→task from the boot-fetched config.
+          if (host_.resolve_station(mesa_num_.c_str())) {
+            err_.clear();
+            screen_ = Screen::ConfirmTask; // show resolved task for operator confirmation
+          } else {
+            err_ = "Sin tarea para mesa / No task for table";
+          }
         } else {
+          // Manual mode: no task config available (fetch failed/skipped). Current behavior.
           err_.clear();
           host_.select_table(mesa_num_.c_str());
-          take_n_ = 0; // a table change resets the per-session take counter
+          take_n_ = 0;
           screen_ = Screen::Main;
         }
       } else if (mesa_num_.size() < 9) {

@@ -21,8 +21,10 @@
 #include "episode.h"
 #include "eunomia_sidecar.h"
 #include "heap_health.h"
+#include "operational_record.h"
 #include "ordinal_log.h"
 #include "sidecar_assembly.h"
+#include "task_config.h"
 #include "trigger_state_machine.h"
 
 using namespace eunomia::core;
@@ -261,7 +263,8 @@ void test_fire_confirm_rollback_partial_start() {
   TEST_ASSERT_EQUAL(static_cast<int>(GateOutcome::Committed), static_cast<int>(co.last_outcome()));
   TEST_ASSERT_EQUAL_INT64(1, co.take().episode_ordinal);
   TEST_ASSERT_EQUAL(1, store.writes);
-  TEST_ASSERT_EQUAL(1u, log.lines.size()); // exactly one durable line for the committed ordinal
+  // F9: ordinal entry + episode_started = 2 durable lines per committed START
+  TEST_ASSERT_EQUAL(2u, log.lines.size());
 }
 
 // ---- F6: fire CONFIRMS but the durable commit fails → roll back the fire too, never burn an
@@ -371,6 +374,7 @@ void test_serialize_ordinal_entry() {
   e.fob_session_id = "1a2b3c4d";
   e.episode_id = "eid-123";
   const std::string line = serialize_ordinal_entry(e);
+  TEST_ASSERT_TRUE(line.find("\"T\":\"O\"") != std::string::npos); // F9: type discriminator
   TEST_ASSERT_TRUE(line.find("\"o\":42") != std::string::npos);
   TEST_ASSERT_TRUE(line.find("\"t\":1700000000") != std::string::npos);
   TEST_ASSERT_TRUE(line.find("\"k\":\"kit_07\"") != std::string::npos);
@@ -438,13 +442,15 @@ void test_durable_log_append_after_fire() {
   TEST_ASSERT_FALSE(co.trigger(cams));
   TEST_ASSERT_EQUAL(0, static_cast<int>(log.lines.size()));
 
-  pres.list = {"left", "right"}; // commit → exactly one durable line, AFTER both fired
+  pres.list = {"left", "right"}; // commit → durable lines AFTER both fired
   TEST_ASSERT_TRUE(co.trigger(cams));
   TEST_ASSERT_EQUAL(1, left.starts);
   TEST_ASSERT_EQUAL(1, right.starts);
-  TEST_ASSERT_EQUAL(1, static_cast<int>(log.lines.size()));
+  // F9: ordinal entry + episode_started = 2 durable lines per committed START
+  TEST_ASSERT_EQUAL(2, static_cast<int>(log.lines.size()));
   TEST_ASSERT_TRUE(log.lines[0].find("\"o\":1") != std::string::npos); // ordinal 1
   TEST_ASSERT_TRUE(log.lines[0].find("\"k\":\"kit_07\"") != std::string::npos);
+  TEST_ASSERT_TRUE(log.lines[1].find("\"T\":\"E\"") != std::string::npos); // episode_started
   TEST_ASSERT_TRUE(log.bytes() > 0);
 }
 
@@ -609,6 +615,304 @@ void test_env_projections() {
   TEST_ASSERT_TRUE(stop.find("ARCHIVE=\"1\"") != std::string::npos);
 }
 
+// ---- F9: task-config parsing ----
+void test_parse_task_config() {
+  const std::string json = R"({
+    "site_id": "sf",
+    "assignments": [
+      {"station_id":"3","task_id":"fold","task_name":"Fold Towel",
+       "prompt":"Fold the towel","rotation_id":"A","task_version":2},
+      {"station_id":"5","task_id":"pour","task_name":"Pour Water",
+       "prompt":"Pour water","rotation_id":"B","task_version":1}
+    ],
+    "roster": ["101","102"],
+    "fetched_at": "2026-06-27T08:15:00Z"
+  })";
+  const auto cfg = parse_task_config(json);
+  TEST_ASSERT_TRUE(cfg.valid);
+  TEST_ASSERT_EQUAL_STRING("sf", cfg.site_id.c_str());
+  TEST_ASSERT_EQUAL(2, static_cast<int>(cfg.assignments.size()));
+  TEST_ASSERT_EQUAL_STRING("3", cfg.assignments[0].station_id.c_str());
+  TEST_ASSERT_EQUAL_STRING("fold", cfg.assignments[0].task_id.c_str());
+  TEST_ASSERT_EQUAL_STRING("Fold Towel", cfg.assignments[0].task_name.c_str());
+  TEST_ASSERT_EQUAL_STRING("A", cfg.assignments[0].rotation_id.c_str());
+  TEST_ASSERT_EQUAL(2, cfg.assignments[0].task_version);
+  TEST_ASSERT_EQUAL_STRING("5", cfg.assignments[1].station_id.c_str());
+  TEST_ASSERT_EQUAL(2, static_cast<int>(cfg.roster.size()));
+  TEST_ASSERT_EQUAL_STRING("101", cfg.roster[0].c_str());
+  TEST_ASSERT_EQUAL_STRING("2026-06-27T08:15:00Z", cfg.fetched_at.c_str());
+}
+
+void test_parse_task_config_malformed() {
+  const auto cfg = parse_task_config("{not valid json!!!");
+  TEST_ASSERT_FALSE(cfg.valid);
+}
+
+void test_parse_task_config_empty() {
+  const auto cfg = parse_task_config("");
+  TEST_ASSERT_FALSE(cfg.valid);
+}
+
+void test_parse_task_config_missing_assignments() {
+  const auto cfg = parse_task_config(R"({"site_id":"sf"})");
+  TEST_ASSERT_FALSE(cfg.valid);
+}
+
+void test_parse_task_config_partial_assignment() {
+  const std::string json = R"({
+    "assignments": [
+      {"station_id":"3","task_id":"fold","task_name":"Fold"},
+      {"station_id":"","task_id":"bad"},
+      {"task_id":"no_station"},
+      {"station_id":"7","task_id":"pour","task_name":"Pour"}
+    ]
+  })";
+  const auto cfg = parse_task_config(json);
+  TEST_ASSERT_TRUE(cfg.valid);
+  TEST_ASSERT_EQUAL(2, static_cast<int>(cfg.assignments.size()));
+  TEST_ASSERT_EQUAL_STRING("3", cfg.assignments[0].station_id.c_str());
+  TEST_ASSERT_EQUAL_STRING("7", cfg.assignments[1].station_id.c_str());
+}
+
+// ---- F9: station→task resolution ----
+void test_resolve_assignment_found() {
+  const std::string json = R"({
+    "assignments": [
+      {"station_id":"3","task_id":"fold","task_name":"Fold Towel","prompt":"Fold it",
+       "rotation_id":"A","task_version":2},
+      {"station_id":"5","task_id":"pour","task_name":"Pour Water","prompt":"Pour it"}
+    ]
+  })";
+  const auto cfg = parse_task_config(json);
+  const auto *sa = resolve_assignment(cfg, "5");
+  TEST_ASSERT_NOT_NULL(sa);
+  TEST_ASSERT_EQUAL_STRING("pour", sa->task_id.c_str());
+  TEST_ASSERT_EQUAL_STRING("Pour Water", sa->task_name.c_str());
+  TEST_ASSERT_EQUAL_STRING("Pour it", sa->prompt.c_str());
+}
+
+void test_resolve_assignment_not_found() {
+  const std::string json = R"({"assignments":[{"station_id":"3","task_id":"fold"}]})";
+  const auto cfg = parse_task_config(json);
+  TEST_ASSERT_NULL(resolve_assignment(cfg, "99"));
+}
+
+void test_resolve_assignment_invalid_config() {
+  TaskConfig cfg; // valid=false
+  TEST_ASSERT_NULL(resolve_assignment(cfg, "3"));
+}
+
+// ---- F9: operational record serialization ----
+void test_serialize_episode_started() {
+  Assignment a;
+  a.kit_id = "kit_07";
+  a.operator_id = "101";
+  a.station_id = "3";
+  a.task_id = "fold";
+  a.rotation_id = "A";
+  a.task_source = "boot_config";
+  a.session_id = "sess-1";
+  TakeContext t;
+  t.episode_id = "eid-abc";
+  t.episode_ordinal = 42;
+  t.started_unix = 1719475200;
+  const std::string line = serialize_episode_started(a, t);
+  TEST_ASSERT_TRUE(line.find("\"T\":\"E\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"st\":\"start\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"o\":42") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"k\":\"kit_07\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"e\":\"eid-abc\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"op\":\"101\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"stn\":\"3\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"tid\":\"fold\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"rv\":\"A\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"ts\":\"boot_config\"") != std::string::npos);
+  TEST_ASSERT_EQUAL('}', line.back());
+}
+
+void test_serialize_episode_stopped() {
+  TakeContext t;
+  t.episode_id = "eid-abc";
+  t.episode_ordinal = 42;
+  t.stopped_unix = 1719475320;
+  t.stop_reason = "operator";
+  t.archive = 0;
+  t.recording_suspect = 1;
+  const std::string line = serialize_episode_stopped(t, "kit_07");
+  TEST_ASSERT_TRUE(line.find("\"T\":\"E\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"st\":\"stop\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"r\":\"operator\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"a\":0") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"rs\":1") != std::string::npos);
+  TEST_ASSERT_EQUAL('}', line.back());
+}
+
+void test_serialize_episode_discarded() {
+  TakeContext t;
+  t.episode_id = "eid-abc";
+  t.episode_ordinal = 42;
+  t.stopped_unix = 1719475325;
+  const std::string line = serialize_episode_discarded(t, "kit_07");
+  TEST_ASSERT_TRUE(line.find("\"T\":\"E\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"st\":\"discard\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"e\":\"eid-abc\"") != std::string::npos);
+  TEST_ASSERT_EQUAL('}', line.back());
+}
+
+void test_serialize_session_signin() {
+  Assignment a;
+  a.kit_id = "kit_07";
+  a.fob_id = "fobA";
+  a.fob_session_id = "1a2b3c4d";
+  a.operator_id = "101";
+  a.site_id = "sf";
+  const std::string line = serialize_session_signin(a, "sess-abc", 1719474000);
+  TEST_ASSERT_TRUE(line.find("\"T\":\"S\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"st\":\"signin\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"sid\":\"sess-abc\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"op\":\"101\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"site\":\"sf\"") != std::string::npos);
+  TEST_ASSERT_EQUAL('}', line.back());
+}
+
+void test_serialize_station_assignment() {
+  Assignment a;
+  a.kit_id = "kit_07";
+  a.station_id = "3";
+  a.task_id = "fold";
+  a.task_name = "Fold Towel";
+  a.rotation_id = "A";
+  a.task_source = "boot_config";
+  const std::string line = serialize_station_assignment(a, 1719474060, "sess-abc");
+  TEST_ASSERT_TRUE(line.find("\"T\":\"A\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"stn\":\"3\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"tid\":\"fold\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"tn\":\"Fold Towel\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"ts\":\"boot_config\"") != std::string::npos);
+  TEST_ASSERT_EQUAL('}', line.back());
+}
+
+void test_serialize_call_lead() {
+  Assignment a;
+  a.kit_id = "kit_07";
+  a.operator_id = "101";
+  a.station_id = "3";
+  const std::string line = serialize_call_lead(a, 1719475500, "sess-abc");
+  TEST_ASSERT_TRUE(line.find("\"T\":\"S\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"st\":\"call\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"sid\":\"sess-abc\"") != std::string::npos);
+  TEST_ASSERT_EQUAL('}', line.back());
+}
+
+// F9: the durable log now emits episode_started + episode_stopped operational records alongside the
+// ordinal entry. Verify the full lifecycle produces the expected number and types of log lines.
+void test_operational_records_in_durable_log() {
+  FakeClock clk;
+  CounterRng rng;
+  FakeStore store;
+  FakePresence pres;
+  FakeEpisodeLog log;
+  FakeDevice left;
+  FakeDevice right;
+  Coordinator co({&clk, &rng, &store, &pres, nullptr, &log}, {{"left", &left}, {"right", &right}},
+                 2);
+  Assignment a;
+  a.kit_id = "kit_07";
+  a.fob_id = "fobA";
+  a.operator_id = "101";
+  a.station_id = "3";
+  a.task_id = "fold";
+  a.task_source = "boot_config";
+  a.session_id = "sess-1";
+  co.set_assignment(a);
+  co.set_fob_session_id("sess1");
+  const std::vector<std::string> cams{"left", "right"};
+  pres.list = {"left", "right"};
+
+  // START → ordinal entry ("T":"O") + episode_started ("T":"E","st":"start")
+  TEST_ASSERT_TRUE(co.trigger(cams));
+  TEST_ASSERT_EQUAL(2, static_cast<int>(log.lines.size()));
+  TEST_ASSERT_TRUE(log.lines[0].find("\"T\":\"O\"") != std::string::npos);
+  TEST_ASSERT_TRUE(log.lines[1].find("\"T\":\"E\"") != std::string::npos);
+  TEST_ASSERT_TRUE(log.lines[1].find("\"st\":\"start\"") != std::string::npos);
+  TEST_ASSERT_TRUE(log.lines[1].find("\"tid\":\"fold\"") != std::string::npos);
+
+  // STOP → episode_stopped ("T":"E","st":"stop")
+  TEST_ASSERT_TRUE(co.stop("operator"));
+  TEST_ASSERT_EQUAL(3, static_cast<int>(log.lines.size()));
+  TEST_ASSERT_TRUE(log.lines[2].find("\"st\":\"stop\"") != std::string::npos);
+  TEST_ASSERT_TRUE(log.lines[2].find("\"r\":\"operator\"") != std::string::npos);
+
+  // DESCARTAR → episode_discarded ("T":"E","st":"discard")
+  co.mark_archive();
+  TEST_ASSERT_EQUAL(4, static_cast<int>(log.lines.size()));
+  TEST_ASSERT_TRUE(log.lines[3].find("\"st\":\"discard\"") != std::string::npos);
+}
+
+// F9: verify a rolled-back START emits NO operational records (same as F5/F6 — no orphaned lines).
+void test_operational_records_not_emitted_on_rollback() {
+  FakeClock clk;
+  CounterRng rng;
+  FakeStore store;
+  FakePresence pres;
+  FakeEpisodeLog log;
+  FakeConfirmableDevice left;
+  FakeConfirmableDevice right;
+  Coordinator co({&clk, &rng, &store, &pres, nullptr, &log}, {{"left", &left}, {"right", &right}},
+                 2);
+  co.set_confirmer("left", &left);
+  co.set_confirmer("right", &right);
+  const std::vector<std::string> cams{"left", "right"};
+  pres.list = {"left", "right"};
+  right.ack = false; // fire under-confirms → rollback
+  TEST_ASSERT_FALSE(co.trigger(cams));
+  TEST_ASSERT_EQUAL(0, static_cast<int>(log.lines.size())); // no lines at all
+}
+
+// F9: log budget — verify extended records fit in the 2×64 KB window for a full day.
+void test_log_budget_extended_records() {
+  StringSegment a;
+  StringSegment b;
+  const std::size_t seg = 64 * 1024;
+  SegmentedEpisodeLog log(a, b, seg);
+  log.begin();
+  Assignment assign;
+  assign.kit_id = "kit_07";
+  assign.operator_id = "101";
+  assign.station_id = "3";
+  assign.task_id = "fold";
+  assign.task_source = "boot_config";
+  assign.session_id = "sess-1";
+  TakeContext take;
+  take.episode_id = "eid-00000000-0000-0000-0000-000000000000";
+  take.episode_ordinal = 1;
+  take.started_unix = 1719475200;
+  take.stopped_unix = 1719475320;
+  take.stop_reason = "operator";
+  OrdinalLogEntry oe;
+  oe.ordinal = 1;
+  oe.wallclock_unix = 1719475200;
+  oe.kit_id = "kit_07";
+  oe.fob_id = "fobA";
+  oe.fob_session_id = "1a2b3c4d";
+  oe.episode_id = take.episode_id;
+  // Simulate 256 takes (a full day)
+  for (int i = 0; i < 256; ++i) {
+    oe.ordinal = i + 1;
+    take.episode_ordinal = i + 1;
+    log.append(serialize_ordinal_entry(oe));
+    log.append(serialize_episode_started(assign, take));
+    log.append(serialize_episode_stopped(take, "kit_07"));
+  }
+  // Plus a few sign-in + assignment events
+  for (int i = 0; i < 5; ++i) {
+    log.append(serialize_session_signin(assign, "sess-1", 1719474000));
+    log.append(serialize_station_assignment(assign, 1719474060, "sess-1"));
+  }
+  TEST_ASSERT_TRUE(log.bytes() <= 2 * seg);
+  TEST_ASSERT_TRUE(log.bytes() > 0);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_state_machine_spam_safety);
@@ -628,5 +932,25 @@ int main(int, char **) {
   RUN_TEST(test_detect_drop_l2_only);
   RUN_TEST(test_stop_finalize_recording_suspect);
   RUN_TEST(test_env_projections);
+  // F9: task-config parsing + resolution
+  RUN_TEST(test_parse_task_config);
+  RUN_TEST(test_parse_task_config_malformed);
+  RUN_TEST(test_parse_task_config_empty);
+  RUN_TEST(test_parse_task_config_missing_assignments);
+  RUN_TEST(test_parse_task_config_partial_assignment);
+  RUN_TEST(test_resolve_assignment_found);
+  RUN_TEST(test_resolve_assignment_not_found);
+  RUN_TEST(test_resolve_assignment_invalid_config);
+  // F9: operational record serialization
+  RUN_TEST(test_serialize_episode_started);
+  RUN_TEST(test_serialize_episode_stopped);
+  RUN_TEST(test_serialize_episode_discarded);
+  RUN_TEST(test_serialize_session_signin);
+  RUN_TEST(test_serialize_station_assignment);
+  RUN_TEST(test_serialize_call_lead);
+  // F9: operational records in coordinator lifecycle
+  RUN_TEST(test_operational_records_in_durable_log);
+  RUN_TEST(test_operational_records_not_emitted_on_rollback);
+  RUN_TEST(test_log_budget_extended_records);
   return UNITY_END();
 }

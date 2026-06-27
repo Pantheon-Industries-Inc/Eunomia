@@ -96,8 +96,10 @@ gates-cpp-tidy:
 	@if command -v clang-tidy >/dev/null 2>&1; then \
 	  echo "clang-tidy (blocking, scoped: core/ + transport/proto/)"; \
 	  EXTRA=""; [ "$$(uname)" = "Darwin" ] && EXTRA="-isysroot $$(xcrun --show-sdk-path)"; \
+	  AJSON="firmware/coordinator/.pio/libdeps/native/ArduinoJson/src"; \
 	  clang-tidy $(TIDY_FILES) -- -std=c++17 -Ifirmware/coordinator/core \
-	    -Ifirmware/coordinator/transport/proto -Icontracts/_generated/cpp $$EXTRA; \
+	    -Ifirmware/coordinator/transport/proto -Icontracts/_generated/cpp \
+	    $$([ -d "$$AJSON" ] && echo "-I$$AJSON") $$EXTRA; \
 	elif [ -n "$$CI" ]; then \
 	  echo "ERROR: clang-tidy is REQUIRED in CI but was not found (a blocking gate must not silently skip)"; \
 	  exit 1; \

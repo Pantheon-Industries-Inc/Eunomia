@@ -44,6 +44,8 @@ void render_confirm_id(const char *name, const char *kit);
 void render_provision(const char *num, const char *err); // REGISTRO (kit number)
 void render_sign_in(const char *num, const char *err);   // operator sign-in (operator number)
 void render_mesa(const char *num, const char *err);      // table number
+void render_confirm_task(const char *station, const char *task_name,
+                         const char *prompt); // F9: confirm resolved task
 
 // Advance + redraw ONLY the prompt marquee band (no full redraw / no flicker). Call each loop on
 // MAIN.
