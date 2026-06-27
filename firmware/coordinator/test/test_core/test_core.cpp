@@ -20,6 +20,7 @@
 #include "coordinator.h"
 #include "episode.h"
 #include "eunomia_sidecar.h"
+#include "heap_health.h"
 #include "ordinal_log.h"
 #include "sidecar_assembly.h"
 #include "trigger_state_machine.h"
@@ -87,10 +88,32 @@ public:
   void write_sidecar(const eunomia::Sidecar &) override { ++wrote; }
 };
 
-class FakeSink : public TelemetrySink {
+// Durable ordinal-log fake: records the appended lines + total bytes (the append-after-fire proof).
+class FakeEpisodeLog : public EpisodeLogStore {
 public:
-  std::vector<std::string> sent;
-  void send(const std::string &s) override { sent.push_back(s); }
+  std::vector<std::string> lines;
+  void append(const std::string &line) override {
+    lines.push_back(line);
+    bytes_ += line.size() + 1;
+  }
+  std::size_t bytes() const override { return bytes_; }
+
+private:
+  std::size_t bytes_ = 0;
+};
+
+// String-backed LogSegment — the off-target storage the ping-pong rotation runs on (the SAME core
+// logic the LittleFS impl runs, over RAM strings instead of files), so rotation is rig-free
+// testable.
+class StringSegment : public LogSegment {
+public:
+  std::string buf;
+  void append(const std::string &line) override {
+    buf += line;
+    buf.push_back('\n');
+  }
+  void clear() override { buf.clear(); }
+  std::size_t size() const override { return buf.size(); }
 };
 
 // A device that ALSO confirms its fire via the F6 StartConfirmable side-channel. `ack` controls the
@@ -207,7 +230,9 @@ void test_fire_confirm_rollback_partial_start() {
   FakePresence pres;
   FakeConfirmableDevice left;
   FakeConfirmableDevice right;
-  Coordinator co({&clk, &rng, &store, &pres, nullptr}, {{"left", &left}, {"right", &right}}, 2);
+  FakeEpisodeLog log;
+  Coordinator co({&clk, &rng, &store, &pres, nullptr, &log}, {{"left", &left}, {"right", &right}},
+                 2);
   co.set_confirmer("left", &left);
   co.set_confirmer("right", &right);
   const std::vector<std::string> cams{"left", "right"};
@@ -226,7 +251,7 @@ void test_fire_confirm_rollback_partial_start() {
   TEST_ASSERT_EQUAL(0, left.void_starts); // ...via the confirmer, never the void fallback
   TEST_ASSERT_EQUAL(1, left.stops);       // and the started cam was stopped (no clip rolling)
   TEST_ASSERT_EQUAL(1, right.stops);
-  TEST_ASSERT_EQUAL(0u, co.ordinal_log().size()); // no orphaned ordinal-log entry (the F5 concern)
+  TEST_ASSERT_EQUAL(0u, log.lines.size()); // no orphaned DURABLE log line (F5 + F6 rollback)
 
   // The next press with both cams confirming REUSES ordinal 1 (no skip/burn — the DurableOrdinal
   // invariant survives the rollback).
@@ -236,7 +261,7 @@ void test_fire_confirm_rollback_partial_start() {
   TEST_ASSERT_EQUAL(static_cast<int>(GateOutcome::Committed), static_cast<int>(co.last_outcome()));
   TEST_ASSERT_EQUAL_INT64(1, co.take().episode_ordinal);
   TEST_ASSERT_EQUAL(1, store.writes);
-  TEST_ASSERT_EQUAL(1u, co.ordinal_log().size());
+  TEST_ASSERT_EQUAL(1u, log.lines.size()); // exactly one durable line for the committed ordinal
 }
 
 // ---- F6: fire CONFIRMS but the durable commit fails → roll back the fire too, never burn an
@@ -248,7 +273,9 @@ void test_fire_confirmed_but_commit_fails_rolls_back() {
   FakePresence pres;
   FakeConfirmableDevice left;
   FakeConfirmableDevice right;
-  Coordinator co({&clk, &rng, &store, &pres, nullptr}, {{"left", &left}, {"right", &right}}, 2);
+  FakeEpisodeLog log;
+  Coordinator co({&clk, &rng, &store, &pres, nullptr, &log}, {{"left", &left}, {"right", &right}},
+                 2);
   co.set_confirmer("left", &left);
   co.set_confirmer("right", &right);
   const std::vector<std::string> cams{"left", "right"};
@@ -263,7 +290,7 @@ void test_fire_confirmed_but_commit_fails_rolls_back() {
   TEST_ASSERT_EQUAL(1, right.confirmed_fires);
   TEST_ASSERT_EQUAL(1, left.stops); // then rolled back
   TEST_ASSERT_EQUAL(1, right.stops);
-  TEST_ASSERT_EQUAL(0u, co.ordinal_log().size()); // no orphaned log line
+  TEST_ASSERT_EQUAL(0u, log.lines.size()); // no orphaned DURABLE log line on commit-failure
 }
 
 // ---- delayed-button instant-ack + lockout (the same primitive for START/STOP/settings) ----
@@ -334,19 +361,91 @@ void test_durable_ordinal_persist_before_advance() {
   TEST_ASSERT_EQUAL_INT64(4, ord2.advance());
 }
 
-// ---- the fob-side ordinal-join ring buffer is self-bounding (drops the oldest) ----
-void test_ordinal_log_ring_bounds() {
-  OrdinalLog log(3);
-  for (int i = 1; i <= 5; ++i) {
-    OrdinalLogEntry e;
-    e.ordinal = i;
-    e.episode_id = "e" + std::to_string(i);
-    log.append(e);
+// ---- the compact JSONL line carries the order-join keys (de-dup on kit/session/ordinal) ----
+void test_serialize_ordinal_entry() {
+  OrdinalLogEntry e;
+  e.ordinal = 42;
+  e.wallclock_unix = 1700000000;
+  e.kit_id = "kit_07";
+  e.fob_id = "fobA";
+  e.fob_session_id = "1a2b3c4d";
+  e.episode_id = "eid-123";
+  const std::string line = serialize_ordinal_entry(e);
+  TEST_ASSERT_TRUE(line.find("\"o\":42") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"t\":1700000000") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"k\":\"kit_07\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"s\":\"1a2b3c4d\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"e\":\"eid-123\"") != std::string::npos);
+  TEST_ASSERT_EQUAL('}', line.back());
+}
+
+// ---- the durable log is BOUNDED + retains the recent window, and SURVIVES a battery swap ----
+void test_segmented_episode_log_bounds() {
+  StringSegment a;
+  StringSegment b;
+  SegmentedEpisodeLog log(a, b, 50); // 50-byte segments → max 100 bytes retained (ping-pong)
+  log.begin();
+  for (int i = 0; i < 100; ++i) {
+    log.append("L" + std::to_string(i)); // far past one segment
   }
-  TEST_ASSERT_EQUAL(3, static_cast<int>(log.size()));
-  TEST_ASSERT_EQUAL(3, static_cast<int>(log.capacity()));
-  TEST_ASSERT_EQUAL_INT64(3, log.at(0).ordinal); // oldest retained
-  TEST_ASSERT_EQUAL_INT64(5, log.at(2).ordinal); // newest
+  TEST_ASSERT_TRUE(log.bytes() <= 100); // bounded: never exceeds 2·seg_bytes
+  const std::string combined = a.buf + b.buf;
+  TEST_ASSERT_TRUE(combined.find("L99\n") != std::string::npos); // newest retained
+  TEST_ASSERT_TRUE(combined.find("L0\n") == std::string::npos);  // oldest dropped
+
+  // A battery swap: a fresh log over the SAME (durable) segments recovers the active = smaller one,
+  // keeps the retained window, and resumes appending — it is NOT wiped.
+  const std::size_t survived = log.bytes();
+  SegmentedEpisodeLog reopened(a, b, 50);
+  reopened.begin();
+  TEST_ASSERT_EQUAL(static_cast<int>(survived), static_cast<int>(reopened.bytes()));
+  reopened.append("L100");
+  TEST_ASSERT_TRUE((a.buf + b.buf).find("L100\n") != std::string::npos);
+  TEST_ASSERT_TRUE(reopened.bytes() <= 100);
+}
+
+// ---- the low-heap watchdog floor: refuse a START below the largest-free-block floor ----
+void test_heap_ok_floor() {
+  TEST_ASSERT_TRUE(heap_ok(kHeapFloorBytes));      // at the floor → ok
+  TEST_ASSERT_TRUE(heap_ok(kHeapFloorBytes + 1));  // above → ok
+  TEST_ASSERT_FALSE(heap_ok(kHeapFloorBytes - 1)); // below → refuse
+  TEST_ASSERT_FALSE(heap_ok(0));
+}
+
+// ---- the durable §1.7 backup is written AFTER the fleet fires, only for a COMMITTED START ----
+void test_durable_log_append_after_fire() {
+  FakeClock clk;
+  CounterRng rng;
+  FakeStore store;
+  FakePresence pres;
+  FakeEpisodeLog log;
+  FakeDevice left;
+  FakeDevice right;
+  Coordinator co({&clk, &rng, &store, &pres, nullptr, &log}, {{"left", &left}, {"right", &right}},
+                 2);
+  Assignment a;
+  a.kit_id = "kit_07";
+  a.fob_id = "fobA";
+  co.set_assignment(a);
+  co.set_fob_session_id("sess1");
+  const std::vector<std::string> cams{"left", "right"};
+
+  pres.list = {}; // phantom → no commit → no durable line
+  TEST_ASSERT_FALSE(co.trigger(cams));
+  TEST_ASSERT_EQUAL(0, static_cast<int>(log.lines.size()));
+
+  pres.list = {"left"}; // one-sided → refused → no durable line (no ordinal for a non-take)
+  TEST_ASSERT_FALSE(co.trigger(cams));
+  TEST_ASSERT_EQUAL(0, static_cast<int>(log.lines.size()));
+
+  pres.list = {"left", "right"}; // commit → exactly one durable line, AFTER both fired
+  TEST_ASSERT_TRUE(co.trigger(cams));
+  TEST_ASSERT_EQUAL(1, left.starts);
+  TEST_ASSERT_EQUAL(1, right.starts);
+  TEST_ASSERT_EQUAL(1, static_cast<int>(log.lines.size()));
+  TEST_ASSERT_TRUE(log.lines[0].find("\"o\":1") != std::string::npos); // ordinal 1
+  TEST_ASSERT_TRUE(log.lines[0].find("\"k\":\"kit_07\"") != std::string::npos);
+  TEST_ASSERT_TRUE(log.bytes() > 0);
 }
 
 // ---- the eunomia-sidecar/v1 assembly validates against the generated parser ----
@@ -443,17 +542,16 @@ void test_detect_drop_l2_only() {
   TEST_ASSERT_EQUAL(0, static_cast<int>(co.detect_drop().size()));
 }
 
-// ---- STOP finalize sets recording_suspect when a clip can't be recovered; flush drains telemetry
-// --
-void test_stop_finalize_recording_suspect_and_flush() {
+// ---- STOP finalize sets recording_suspect when a clip can't be recovered (the no-SD trap) ----
+void test_stop_finalize_recording_suspect() {
   FakeClock clk;
   CounterRng rng;
   FakeStore store;
   FakePresence pres;
-  FakeSink sink;
   FakeDevice left;
   FakeDevice right;
-  Coordinator co({&clk, &rng, &store, &pres, &sink}, {{"left", &left}, {"right", &right}}, 2);
+  Coordinator co({&clk, &rng, &store, &pres, nullptr, nullptr},
+                 {{"left", &left}, {"right", &right}}, 2);
   Assignment a;
   a.kit_id = "kit_07";
   a.fob_id = "fobA";
@@ -476,10 +574,7 @@ void test_stop_finalize_recording_suspect_and_flush() {
 
   TEST_ASSERT_FALSE(co.stop("operator")); // STOP from idle refused
 
-  TEST_ASSERT_TRUE(co.pending_telemetry() > 0);
-  co.flush_telemetry();
-  TEST_ASSERT_EQUAL(0, static_cast<int>(co.pending_telemetry()));
-  TEST_ASSERT_TRUE(!sink.sent.empty());
+  co.flush_telemetry(); // no-op now (the dead god's-view queue was deleted) — must stay callable
 }
 
 // ---- the two env projections (the second projection of the single source) ----
@@ -524,11 +619,14 @@ int main(int, char **) {
   RUN_TEST(test_button_feedback);
   RUN_TEST(test_episode_uuid_and_display);
   RUN_TEST(test_durable_ordinal_persist_before_advance);
-  RUN_TEST(test_ordinal_log_ring_bounds);
+  RUN_TEST(test_serialize_ordinal_entry);
+  RUN_TEST(test_segmented_episode_log_bounds);
+  RUN_TEST(test_heap_ok_floor);
+  RUN_TEST(test_durable_log_append_after_fire);
   RUN_TEST(test_sidecar_assembly_validates);
   RUN_TEST(test_golden_sidecar_fixtures_parse);
   RUN_TEST(test_detect_drop_l2_only);
-  RUN_TEST(test_stop_finalize_recording_suspect_and_flush);
+  RUN_TEST(test_stop_finalize_recording_suspect);
   RUN_TEST(test_env_projections);
   return UNITY_END();
 }

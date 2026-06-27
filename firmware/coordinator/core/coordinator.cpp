@@ -6,22 +6,6 @@ namespace eunomia::core {
 
 namespace {
 constexpr char kOrdinalKey[] = "fob_episode_ordinal";
-constexpr std::size_t kOrdinalLogCapacity = 512; // ≥2× the drain cadence (the ~2-day §1.7 window)
-
-void queue_event(std::vector<std::string> &pending, const char *event, const TakeContext &t,
-                 std::size_t sent) {
-  // A tiny god's-view line (no poison camera time; the fob wallclock rides on started_unix).
-  std::string line = "{\"event\":\"";
-  line += event;
-  line += "\",\"episode_id\":\"";
-  line += t.episode_id;
-  line += "\",\"ordinal\":";
-  line += std::to_string(t.episode_ordinal);
-  line += ",\"sent\":";
-  line += std::to_string(sent);
-  line += "}";
-  pending.push_back(std::move(line));
-}
 } // namespace
 
 GateOutcome evaluate_gate(std::size_t present_count, std::size_t required) {
@@ -36,7 +20,7 @@ GateOutcome evaluate_gate(std::size_t present_count, std::size_t required) {
 
 Coordinator::Coordinator(Deps deps, Fleet fleet, std::size_t required_cameras)
     : deps_(deps), fleet_(std::move(fleet)), required_cameras_(required_cameras),
-      ordinal_(*deps.store, kOrdinalKey), ordinal_log_(kOrdinalLogCapacity) {}
+      ordinal_(*deps.store, kOrdinalKey) {}
 
 void Coordinator::set_assignment(const Assignment &a) { assignment_ = a; }
 
@@ -169,16 +153,23 @@ bool Coordinator::trigger(const std::vector<std::string> &cameras) {
   }
   take_.episode_ordinal = ord; // == prospective under the single-threaded wifi-lock
 
-  // The fob-side ordinal-join backup (the §1.7 fail-safe; lives on the fob, not the card).
-  OrdinalLogEntry e;
-  e.ordinal = ord;
-  e.wallclock_unix = deps_.clock->unix_seconds();
-  e.kit_id = assignment_.kit_id;
-  e.fob_id = assignment_.fob_id;
-  e.fob_session_id = assignment_.fob_session_id;
-  e.episode_id = take_.episode_id;
-  ordinal_log_.append(e);
-  queue_event(pending_, "take_start", take_, sent);
+  // The fob-side ordinal-join backup (the §1.7 fail-safe; lives on the fob, not the card) — now
+  // DURABLE (F5). Written here, AFTER the fire confirmed (step 4/5) and the ordinal committed: an
+  // F6 StartFailed rollback returns before this point, so a rolled-back ordinal never leaves a
+  // durable line. Best-effort — a failed durable write must NOT abort the take (the card episode_id
+  // is the primary join, OQ-1). Counter-first is preserved (advance() already persisted the NVS
+  // counter); our lines carry the ABSOLUTE ordinal, so a missing line is a benign gap, not Victor's
+  // positional cascade (so strict log-before-bump is unnecessary — F5 §4).
+  if (deps_.episode_log != nullptr) {
+    OrdinalLogEntry e;
+    e.ordinal = ord;
+    e.wallclock_unix = deps_.clock->unix_seconds();
+    e.kit_id = assignment_.kit_id;
+    e.fob_id = assignment_.fob_id;
+    e.fob_session_id = assignment_.fob_session_id;
+    e.episode_id = take_.episode_id;
+    deps_.episode_log->append(serialize_ordinal_entry(e));
+  }
 
   pending_episode_id_.clear();
   pending_bimanual_id_.clear();
@@ -220,14 +211,11 @@ std::vector<std::string> Coordinator::detect_drop() {
 }
 
 void Coordinator::flush_telemetry() {
-  // Drain the queued god's-view events in the idle gap (single-radio). Best-effort; the durable
-  // ordinal-log backup is unaffected (it is the fail-safe, not this opportunistic uplink).
-  if (deps_.telemetry != nullptr) {
-    for (const auto &line : pending_) {
-      deps_.telemetry->send(line);
-    }
-  }
-  pending_.clear();
+  // No-op (F5): the god's-view event queue (pending_/queue_event) was a DEAD, unbounded-within-a-
+  // shift growth path feeding a cut uplink (DisabledUplink, OQ-4) — deleted. The CoordinatorPort
+  // method stays (removing it is a contract change, out of F5 scope); the real opportunistic-uplink
+  // drain is F7's, over the (not-yet-built) idle/boot channel. The durable §1.7 backup is the
+  // fail-safe, written in trigger() — not this path.
 }
 
 bool Coordinator::stop(const std::string &reason) {
@@ -245,7 +233,6 @@ bool Coordinator::stop(const std::string &reason) {
   for (const auto &entry : fleet_) {
     read_clip_filename(entry.first); // recovers the clip name + sets recording_suspect on absence
   }
-  queue_event(pending_, "take_stop", take_, fleet_.size());
   sm_.on_stopped(); // stopping → idle
   return true;
 }
