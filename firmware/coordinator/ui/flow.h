@@ -38,6 +38,8 @@ public:
   virtual bool kit_provisioned() = 0;   // boot routes REGISTRO (false) vs operator sign-in (true)
   virtual bool time_set() = 0;          // F7: clock loud-not-silent (NTP synced?)
   virtual const char *clock_hhmm() = 0; // F7: "HH:MM" local time (null when not set)
+  virtual bool has_task_config() = 0;   // F9: a task config was fetched + parsed at boot
+  virtual const char *task_name() = 0;  // F9: resolved task name for the current station
 
   // ---- operator inputs (posted) ----
   virtual void
@@ -47,6 +49,9 @@ public:
   virtual void set_kit(const char *kit_id) = 0;      // commit a typed kit (REGISTRO fallback only)
   virtual void sign_in(const char *operator_id) = 0; // set operator_id per shift (operator⊥kit)
   virtual void select_table(const char *table) = 0;  // set station (+ reset prompt)
+  // F9: resolve station→task from the boot-fetched config. Returns true if resolved (fills task
+  // fields in the assignment); false if station not found in the config.
+  virtual bool resolve_station(const char *station_id) = 0;
   virtual void call_lead() = 0; // local help-event log; dashboard POST deferred (god's-view uplink)
 };
 
@@ -58,7 +63,15 @@ public:
   void tick(std::uint32_t now); // poll touch, dispatch, render — call each loop iteration
 
 private:
-  enum class Screen : std::uint8_t { Registro, SignIn, ConfirmId, Mesa, Main, Confirm };
+  enum class Screen : std::uint8_t {
+    Registro,
+    SignIn,
+    ConfirmId,
+    Mesa,
+    ConfirmTask,
+    Main,
+    Confirm
+  };
 
   void dispatch(int sx, int sy, std::uint32_t now);
   void do_toggle(std::uint32_t now); // press -> render(working) -> slow inline action -> complete

@@ -43,8 +43,8 @@ void json_str_field(std::string &out, const char *key, const std::string &value)
 
 std::string serialize_ordinal_entry(const OrdinalLogEntry &e) {
   std::string out;
-  out.reserve(128);
-  out += "{\"o\":";
+  out.reserve(140);
+  out += "{\"T\":\"O\",\"o\":";
   out += std::to_string(e.ordinal);
   out += ",\"t\":";
   out += std::to_string(e.wallclock_unix);
