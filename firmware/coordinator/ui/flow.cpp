@@ -16,6 +16,7 @@ using eunomia::core::State;
 // Long enough to read, short enough to clear itself so the operator just retries. Not a blocking
 // splash (NOTE: loud-not-silent, but light).
 constexpr std::uint32_t kStartFailNoticeMs = 2500;
+constexpr std::uint32_t kLlamarResultMs = 2500; // F8: LLAMAR success/fail toast duration
 
 // Cheap djb2 over a C string — for the MAIN redraw-on-change signature only.
 std::uint32_t str_hash(const char *s) {
@@ -52,6 +53,9 @@ void Flow::render_main_now() {
   v.start_failed = (start_fail_until_ms_ != 0); // F6: brief rolled-back-START notice (tick expires)
   v.time_set = host_.time_set();
   v.clock_hhmm = host_.clock_hhmm();
+  v.llamar_working = llamar_btn_.working();
+  v.llamar_result = (llamar_result_until_ms_ != 0);
+  v.llamar_ok = llamar_ok_;
   screens::render_main(v);
 }
 
@@ -154,8 +158,13 @@ void Flow::dispatch(int sx, int sy, std::uint32_t now) {
         force_ = true;
       }
     } else if (hit == screens::MainHit::Call) {
-      host_.call_lead();
-      screens::call_splash();
+      if (llamar_btn_.press() != Press::Accepted) {
+        break;
+      }
+      render_main_now();
+      llamar_ok_ = host_.call_lead();
+      llamar_btn_.complete();
+      llamar_result_until_ms_ = now + kLlamarResultMs;
       force_ = true;
     }
     break;
@@ -310,15 +319,21 @@ void Flow::tick(std::uint32_t now) {
     // in the future (now + kStartFailNoticeMs), so (now - deadline) stays negative until it passes.
     if (start_fail_until_ms_ != 0 && static_cast<std::int32_t>(now - start_fail_until_ms_) >= 0) {
       start_fail_until_ms_ = 0;
-      force_ = true; // repaint to clear the notice
+      force_ = true;
+    }
+    if (llamar_result_until_ms_ != 0 &&
+        static_cast<std::int32_t>(now - llamar_result_until_ms_) >= 0) {
+      llamar_result_until_ms_ = 0;
+      force_ = true;
     }
     // MAIN redraws ONLY on change (no idle flicker) — but a cam dropping (present_count) or a state
     // change must repaint. Signature mirrors exactly what MAIN draws.
-    const std::uint32_t sig = static_cast<std::uint32_t>(host_.present_count()) ^
-                              (static_cast<std::uint32_t>(host_.core_state()) << 8) ^
-                              (toggle_btn_.working() ? 0x10000u : 0u) ^
-                              (start_fail_until_ms_ != 0 ? 0x20000u : 0u) ^
-                              (str_hash(host_.station()) * 3u) ^ (str_hash(host_.prompt()) * 7u);
+    const std::uint32_t sig =
+        static_cast<std::uint32_t>(host_.present_count()) ^
+        (static_cast<std::uint32_t>(host_.core_state()) << 8) ^
+        (toggle_btn_.working() ? 0x10000u : 0u) ^ (start_fail_until_ms_ != 0 ? 0x20000u : 0u) ^
+        (llamar_btn_.working() ? 0x40000u : 0u) ^ (llamar_result_until_ms_ != 0 ? 0x80000u : 0u) ^
+        (str_hash(host_.station()) * 3u) ^ (str_hash(host_.prompt()) * 7u);
     if (force_ || sig != main_sig_) {
       main_sig_ = sig;
       force_ = false;

@@ -21,6 +21,7 @@
 #include "operational_record.h"
 #include "presence.h"
 #include "provisioning_rx.h"
+#include "radio_borrow.h"
 #include "sidecar_assembly.h"
 #include "softap.h"
 #include "task_config.h"
@@ -71,6 +72,7 @@ CameraRegistry g_registry;
 StationTablePresence g_presence(g_registry);
 DisabledUplink g_uplink;
 BootUplink g_boot_uplink;
+RadioBorrow g_radio_borrow;       // F8: LLAMAR radio-borrow lifecycle
 LittleFsEpisodeLog g_episode_log; // the durable §1.7 ordinal-join backup (begin() after LittleFS)
 WifiConn g_conn_left, g_conn_right, g_conn_lock;
 ArduinoDelayer g_delayer;
@@ -158,6 +160,43 @@ void toggle_record() {
   }
 }
 
+// F8: LLAMAR — radio-borrow + POST + durable log. Gated on Idle (belt-and-suspenders with the UI).
+bool do_llamar() {
+  if (!g_coord || g_coord->state() != State::Idle) {
+    Serial.println("[llamar] refused (not idle)");
+    return false;
+  }
+  const std::string kit = g_assignment.kit_id;
+  const std::string endpoint = "/api/llamar/" + kit;
+  const std::int64_t ts = g_clock.unix_seconds();
+
+  // Build JSON payload
+  std::string body;
+  body.reserve(192);
+  body += "{\"kit_id\":\"";
+  body += kit;
+  body += "\",\"operator_id\":\"";
+  body += g_assignment.operator_id;
+  body += "\",\"station_id\":\"";
+  body += g_assignment.station_id;
+  body += "\",\"fob_session_id\":\"";
+  body += g_assignment.fob_session_id;
+  body += "\",\"timestamp_unix\":";
+  body += std::to_string(ts);
+  body += ",\"event\":\"call_lead\"}";
+
+  lock_wifi();
+  RadioBorrowResult r = g_radio_borrow.borrow_and_post(g_softap, endpoint, body);
+  unlock_wifi();
+
+  // Durable log (best-effort — a failed write does NOT affect the result)
+  g_episode_log.append(eunomia::core::serialize_call_lead(g_assignment, ts, g_session_id));
+
+  Serial.printf("[llamar] done attempted=%d posted=%d ap_restored=%d\n", r.attempted ? 1 : 0,
+                r.posted ? 1 : 0, r.ap_restored ? 1 : 0);
+  return r.posted;
+}
+
 // Depot binding (`cmd=lockcams`): snapshot present stations (MAC+IP, discovery order), learn each
 // serial via a ONE-SHOT /osc/info (Victor's f96b97a fix — depot, idle, serialized; NOT background
 // OSC), then persist BOTH the MAC→side map (our L2 presence binding — OQ-2 B) and the serial
@@ -232,6 +271,8 @@ void apply_kv(const String &key, const String &val) {
       lockcams();
     } else if (val == "status") {
       print_status();
+    } else if (val == "llamar") {
+      do_llamar();
     }
   } else if (key == "time") {
     g_clock.set_unix_time(static_cast<std::uint32_t>(strtoul(val.c_str(), nullptr, 10)));
@@ -428,12 +469,7 @@ public:
       Serial.printf("[ui] TABLE %s (manual, task_source=none)\n", t);
     }
   }
-  void call_lead() override {
-    g_episode_log.append(
-        eunomia::core::serialize_call_lead(g_assignment, g_clock.unix_seconds(), g_session_id));
-    Serial.printf("[ui] CALL LEAD (help logged: kit=%s station=%s; dashboard POST deferred)\n",
-                  g_assignment.kit_id.c_str(), g_assignment.station_id.c_str());
-  }
+  bool call_lead() override { return do_llamar(); }
 };
 #endif // PANTHEON_HAS_TFT
 
@@ -549,6 +585,8 @@ void app_setup() {
     const String upurl = g_store.uplink_url();
     g_boot_uplink.configure(std::string(wssid.c_str()), std::string(wpass.c_str()),
                             std::string(upurl.c_str()), g_assignment.kit_id);
+    g_radio_borrow.configure({std::string(wssid.c_str()), std::string(wpass.c_str()),
+                              std::string(upurl.c_str()), g_assignment.kit_id});
     g_boot_uplink.run();
     // (B) heap after boot-uplink (STA torn down, before SoftAP)
     Serial.printf("[boot-uplink] heap after: largest=%u free=%u\n",
