@@ -50,6 +50,8 @@ void Flow::render_main_now() {
   v.station = host_.station();
   v.prompt = host_.prompt();
   v.start_failed = (start_fail_until_ms_ != 0); // F6: brief rolled-back-START notice (tick expires)
+  v.time_set = host_.time_set();
+  v.clock_hhmm = host_.clock_hhmm();
   screens::render_main(v);
 }
 

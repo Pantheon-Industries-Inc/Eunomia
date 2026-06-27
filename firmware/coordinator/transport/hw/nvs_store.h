@@ -12,7 +12,7 @@ namespace eunomia::transport {
 
 // Our firmware build string for the sidecar's fob_build (distinct from Victor's FOB_FW_VERSION;
 // this is the Eunomia coordinator, adapting his stack).
-inline constexpr const char *kFobBuild = "eunomia-coordinator-f2";
+inline constexpr const char *kFobBuild = "eunomia-coordinator-f7";
 
 // PersistentStore over the ESP32 Preferences/NVS (Victor's "pantheon-fob" namespace). Maps core's
 // long logical keys to ≤15-char NVS keys (nvs_key_for) — see the 15-char-limit finding. Also loads
@@ -34,6 +34,12 @@ public:
   void set_allow_csv(const String &); // persisted by lockcams (serials via /osc/info)
   String sides_csv(); // MAC→side CSV: macL,macR (entry 0=left,1=right) — L2 presence
   void set_sides_csv(const String &); // persisted by lockcams (MACs from the station snapshot)
+
+  // F7 boot-uplink: the site WiFi credentials + the dashboard base URL for the task-config fetch.
+  // Provisioned via serial (`wssid=...; wpass=...; upurl=...`) or the provisioning console (P1).
+  String uplink_ssid();
+  String uplink_pass();
+  String uplink_url();
 
 private:
   Preferences prefs_;

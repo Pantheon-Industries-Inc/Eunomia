@@ -211,6 +211,16 @@ void render_main(const MainView &v) {
   std::snprintf(cb, sizeof(cb), "CAMS %u/%u", static_cast<unsigned>(v.present),
                 static_cast<unsigned>(v.required));
   tft.drawString(cb, 314, 6);
+  // F7: clock indicator — loud-not-silent. HH:MM when synced, red "NO CLOCK" when not.
+  tft.setTextDatum(TC_DATUM);
+  if (v.time_set && v.clock_hhmm != nullptr) {
+    tft.setTextColor(tft.color565(180, 180, 180), TFT_BLACK);
+    tft.drawString(v.clock_hhmm, 160, 10, 2);
+  } else {
+    tft.setTextColor(C_RED, TFT_BLACK);
+    tft.drawString("NO CLOCK", 160, 10, 2);
+  }
+  tft.setTextDatum(TR_DATUM);
   tft.setTextColor(tft.color565(205, 205, 205), TFT_BLACK);
   tft.drawString("toca 2x=cambiar mesa", 314, 26, 2);
   draw_prompt_band();

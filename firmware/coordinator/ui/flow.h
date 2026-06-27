@@ -35,7 +35,9 @@ public:
   virtual const char *station() = 0;
   virtual const char *prompt() = 0;
   virtual const char *kit_id() = 0;
-  virtual bool kit_provisioned() = 0; // boot routes REGISTRO (false) vs operator sign-in (true)
+  virtual bool kit_provisioned() = 0;   // boot routes REGISTRO (false) vs operator sign-in (true)
+  virtual bool time_set() = 0;          // F7: clock loud-not-silent (NTP synced?)
+  virtual const char *clock_hhmm() = 0; // F7: "HH:MM" local time (null when not set)
 
   // ---- operator inputs (posted) ----
   virtual void

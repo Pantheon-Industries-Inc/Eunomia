@@ -58,10 +58,14 @@ std::string MacSideMap::side_for(const std::string &mac) const {
   return std::string();
 }
 
-void CameraRegistry::update(const std::vector<StationEntry> &stations) {
+void CameraRegistry::update(const std::vector<StationEntry> &stations) { update(stations, 0); }
+
+void CameraRegistry::update(const std::vector<StationEntry> &stations, std::uint64_t now_ms) {
+  // Phase 1: mark every slot as "not seen this snapshot."
   for (auto &kv : slots_) {
-    kv.second.present = false; // clear; re-mark from the fresh snapshot
+    kv.second.present = false;
   }
+  // Phase 2: re-mark sides that appear in the fresh L2 snapshot.
   for (const auto &st : stations) {
     if (st.ip.empty()) {
       continue; // associated but no DHCP lease yet — skip (Victor's discoverCams)
@@ -73,6 +77,20 @@ void CameraRegistry::update(const std::vector<StationEntry> &stations) {
     Slot &slot = slots_[side];
     slot.ip = st.ip;
     slot.present = true;
+    if (now_ms > 0) {
+      slot.last_seen_ms = now_ms;
+    }
+  }
+  // Phase 3: staleness grace — a camera missing from this snapshot but seen within staleness_ms is
+  // still considered present (absorbs momentary WiFi hiccups without falsely stranding a healthy
+  // cam offline for the ~29s reconnect cycle).
+  if (now_ms > 0 && staleness_ms_ > 0) {
+    for (auto &kv : slots_) {
+      if (!kv.second.present && kv.second.last_seen_ms > 0 &&
+          (now_ms - kv.second.last_seen_ms) < staleness_ms_) {
+        kv.second.present = true;
+      }
+    }
   }
 }
 

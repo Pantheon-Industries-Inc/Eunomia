@@ -26,6 +26,8 @@ struct MainView {
   const char *station;       // header "MESA <station>"
   const char *prompt;        // the bilingual task prompt (marquees if long)
   bool start_failed = false; // F6: a recent START was rolled back (show a brief failure sub-line)
+  bool time_set = false;     // F7: loud-not-silent clock indicator
+  const char *clock_hhmm = nullptr; // F7: "HH:MM" local time (null when time not set)
 };
 
 // Where a tap landed on MAIN (Victor's y-band routing).
