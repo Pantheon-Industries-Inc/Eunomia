@@ -23,6 +23,7 @@ dev = [
     "import-linter>=2.0,<3.0",
     "jsonschema>=4.0,<5.0",
     "types-jsonschema>=4.0,<5.0",
+    "httpx2>=0.1",
 ]
 
 # Hermetic codegen (Run 0b, BUILD_PLAN carry-forward #1): PyYAML is pinned in
