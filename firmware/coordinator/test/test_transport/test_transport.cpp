@@ -601,6 +601,71 @@ void test_env_key_conformance_with_discardd() {
   }
 }
 
+// ---- F7: NVS key mappings for boot-uplink fields ----
+void test_nvs_key_mapping_uplink() {
+  TEST_ASSERT_EQUAL_STRING("wssid", nvs_key_for("uplink_ssid").c_str());
+  TEST_ASSERT_EQUAL_STRING("wpass", nvs_key_for("uplink_pass").c_str());
+  TEST_ASSERT_EQUAL_STRING("upurl", nvs_key_for("uplink_url").c_str());
+  TEST_ASSERT_TRUE(nvs_key_for("uplink_ssid").size() <= kNvsKeyMax);
+  TEST_ASSERT_TRUE(nvs_key_for("uplink_pass").size() <= kNvsKeyMax);
+  TEST_ASSERT_TRUE(nvs_key_for("uplink_url").size() <= kNvsKeyMax);
+}
+
+// ---- F7: CameraRegistry staleness window ----
+void test_registry_staleness_keeps_camera_within_window() {
+  MacSideMap m = MacSideMap::from_allowlist("aa:aa:aa:aa:aa:aa,bb:bb:bb:bb:bb:bb");
+  CameraRegistry reg;
+  reg.set_map(m);
+  reg.set_staleness_ms(kStalenessIdleMs); // 3000ms
+
+  // t=1000: both cameras present
+  reg.update({{"aa:aa:aa:aa:aa:aa", "192.168.42.2"}, {"bb:bb:bb:bb:bb:bb", "192.168.42.3"}}, 1000);
+  TEST_ASSERT_EQUAL(2, static_cast<int>(reg.present().size()));
+
+  // t=2000: right disappears from snapshot but within 3s window — still present
+  reg.update({{"aa:aa:aa:aa:aa:aa", "192.168.42.2"}}, 2000);
+  TEST_ASSERT_EQUAL(2, static_cast<int>(reg.present().size()));
+  TEST_ASSERT_TRUE(reg.is_present("right"));
+
+  // t=3500: right still gone, but 2.5s since last seen — still within 3s window
+  reg.update({{"aa:aa:aa:aa:aa:aa", "192.168.42.2"}}, 3500);
+  TEST_ASSERT_EQUAL(2, static_cast<int>(reg.present().size()));
+
+  // t=4100: right gone for 3.1s — staleness expired, now absent
+  reg.update({{"aa:aa:aa:aa:aa:aa", "192.168.42.2"}}, 4100);
+  TEST_ASSERT_EQUAL(1, static_cast<int>(reg.present().size()));
+  TEST_ASSERT_FALSE(reg.is_present("right"));
+}
+
+void test_registry_staleness_disabled_by_default() {
+  MacSideMap m = MacSideMap::from_allowlist("aa:aa:aa:aa:aa:aa,bb:bb:bb:bb:bb:bb");
+  CameraRegistry reg;
+  reg.set_map(m);
+  // staleness_ms = 0 (default) — the pre-F7 behavior: immediate drop
+
+  // Both present, then right vanishes — no staleness, immediate drop
+  reg.update({{"aa:aa:aa:aa:aa:aa", "192.168.42.2"}, {"bb:bb:bb:bb:bb:bb", "192.168.42.3"}});
+  TEST_ASSERT_EQUAL(2, static_cast<int>(reg.present().size()));
+  reg.update({{"aa:aa:aa:aa:aa:aa", "192.168.42.2"}});
+  TEST_ASSERT_EQUAL(1, static_cast<int>(reg.present().size()));
+}
+
+void test_registry_staleness_recording_threshold() {
+  MacSideMap m = MacSideMap::from_allowlist("aa:aa:aa:aa:aa:aa,bb:bb:bb:bb:bb:bb");
+  CameraRegistry reg;
+  reg.set_map(m);
+  reg.set_staleness_ms(kStalenessRecordingMs); // 6000ms
+
+  reg.update({{"aa:aa:aa:aa:aa:aa", "192.168.42.2"}, {"bb:bb:bb:bb:bb:bb", "192.168.42.3"}}, 1000);
+  // right drops — still within 6s at t=5000 (4s since last seen)
+  reg.update({{"aa:aa:aa:aa:aa:aa", "192.168.42.2"}}, 5000);
+  TEST_ASSERT_TRUE(reg.is_present("right"));
+
+  // past 6s at t=7100 (6.1s since last seen) — dropped
+  reg.update({{"aa:aa:aa:aa:aa:aa", "192.168.42.2"}}, 7100);
+  TEST_ASSERT_FALSE(reg.is_present("right"));
+}
+
 void setUp() {}
 void tearDown() {}
 
@@ -618,10 +683,14 @@ int main(int, char **) {
   RUN_TEST(test_presence_mac_side_map_and_registry);
   RUN_TEST(test_empty_allowlist_yields_no_sides);
   RUN_TEST(test_nvs_key_mapping);
+  RUN_TEST(test_nvs_key_mapping_uplink);
   RUN_TEST(test_provisioning_parse);
   RUN_TEST(test_coordinator_two_hard_rules_and_oq1);
   RUN_TEST(test_persist_before_advance_under_nvs_failure);
   RUN_TEST(test_x3_start_confirmed_connect_ack);
   RUN_TEST(test_env_key_conformance_with_discardd);
+  RUN_TEST(test_registry_staleness_keeps_camera_within_window);
+  RUN_TEST(test_registry_staleness_disabled_by_default);
+  RUN_TEST(test_registry_staleness_recording_threshold);
   return UNITY_END();
 }

@@ -38,5 +38,8 @@ String NvsStore::allow_csv() { return prefs_.getString("allow", ""); }
 void NvsStore::set_allow_csv(const String &v) { prefs_.putString("allow", v); }
 String NvsStore::sides_csv() { return prefs_.getString("sides", ""); }
 void NvsStore::set_sides_csv(const String &v) { prefs_.putString("sides", v); }
+String NvsStore::uplink_ssid() { return prefs_.getString("wssid", ""); }
+String NvsStore::uplink_pass() { return prefs_.getString("wpass", ""); }
+String NvsStore::uplink_url() { return prefs_.getString("upurl", ""); }
 
 } // namespace eunomia::transport

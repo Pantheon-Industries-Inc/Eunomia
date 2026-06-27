@@ -2,13 +2,16 @@
 
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <WiFi.h>
 #include <cstdio>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <string>
+#include <time.h>
 #include <vector>
 
+#include "boot_uplink.h"
 #include "clock_rng.h"
 #include "conn.h"
 #include "coordinator.h"
@@ -65,6 +68,7 @@ SoftAp g_softap;
 CameraRegistry g_registry;
 StationTablePresence g_presence(g_registry);
 DisabledUplink g_uplink;
+BootUplink g_boot_uplink;
 LittleFsEpisodeLog g_episode_log; // the durable §1.7 ordinal-join backup (begin() after LittleFS)
 WifiConn g_conn_left, g_conn_right, g_conn_lock;
 ArduinoDelayer g_delayer;
@@ -86,6 +90,10 @@ const std::vector<std::string> kFleetSides = {"left", "right"};
 // FLAG-C). Frozen during a take (discovery skips while recording), exactly as Victor's periodic
 // refresh does.
 volatile std::uint32_t g_present_cached = 0;
+
+// F7: WiFi.onEvent discovery kick — on AP STA connect/disconnect, break the discovery task's sleep
+// so presence updates within <1s instead of worst-case 700ms+700ms polling (Victor's onWiFiEvent).
+volatile bool g_discovery_kick = false;
 
 void lock_wifi() {
   if (g_wifi_lock) {
@@ -191,18 +199,24 @@ void print_status() {
   // `ordinal` field is now the TRUE durable counter (FLAG-D: it used to print the RAM log count,
   // which read 0 after every battery swap). Serial-only — network exposure rides F7 (no contract
   // change here).
+  const auto &br = g_boot_uplink.result();
   Serial.printf("{\"kit_id\":\"%s\",\"operator_id\":\"%s\",\"station\":\"%s\",\"cams\":%u,"
-                "\"ordinal\":%lld,\"time_set\":%s,\"ap_ssid\":\"%s\",\"ap_ch\":%u,\"sides\":\"%s\","
-                "\"free_heap\":%u,\"min_heap\":%u,\"largest_free_block\":%u,\"log_bytes\":%lu}\n",
+                "\"ordinal\":%lld,\"time_set\":%s,\"ntp_synced\":%s,"
+                "\"boot_uplink\":{\"attempted\":%s,\"associated\":%s,\"ntp\":%s,\"config\":%s},"
+                "\"ap_ssid\":\"%s\",\"ap_ch\":%u,\"sides\":\"%s\","
+                "\"free_heap\":%u,\"min_heap\":%u,\"largest_free_block\":%u,"
+                "\"log_bytes\":%lu,\"fob_build\":\"%s\"}\n",
                 g_assignment.kit_id.c_str(), g_assignment.operator_id.c_str(),
                 g_assignment.station_id.c_str(), static_cast<unsigned>(g_registry.present().size()),
                 g_coord ? static_cast<long long>(g_coord->current_ordinal()) : 0,
-                g_clock.time_set() ? "true" : "false", g_softap.ssid().c_str(),
-                static_cast<unsigned>(g_softap.channel()), g_store.sides_csv().c_str(),
-                static_cast<unsigned>(ESP.getFreeHeap()),
+                g_clock.time_set() ? "true" : "false", br.ntp_synced ? "true" : "false",
+                br.attempted ? "true" : "false", br.associated ? "true" : "false",
+                br.ntp_synced ? "true" : "false", br.config_fetched ? "true" : "false",
+                g_softap.ssid().c_str(), static_cast<unsigned>(g_softap.channel()),
+                g_store.sides_csv().c_str(), static_cast<unsigned>(ESP.getFreeHeap()),
                 static_cast<unsigned>(ESP.getMinFreeHeap()),
                 static_cast<unsigned>(ESP.getMaxAllocHeap()),
-                static_cast<unsigned long>(g_episode_log.bytes()));
+                static_cast<unsigned long>(g_episode_log.bytes()), kFobBuild);
 }
 
 void apply_kv(const String &key, const String &val) {
@@ -223,6 +237,11 @@ void apply_kv(const String &key, const String &val) {
     p.putString(nvs, val);
     p.end();
     reload_assignment();
+  } else if (key == "wssid" || key == "wpass" || key == "upurl") {
+    Preferences p;
+    p.begin("pantheon-fob", false);
+    p.putString(key.c_str(), val);
+    p.end();
   }
 }
 
@@ -330,6 +349,18 @@ public:
   const char *prompt() override { return g_assignment.prompt.c_str(); }
   const char *kit_id() override { return g_assignment.kit_id.c_str(); }
   bool kit_provisioned() override { return !g_assignment.kit_id.empty(); }
+  bool time_set() override { return g_clock.time_set(); }
+  const char *clock_hhmm() override {
+    if (!g_clock.time_set()) {
+      return nullptr;
+    }
+    time_t now = time(nullptr);
+    struct tm t;
+    localtime_r(&now, &t);
+    static char buf[6];
+    std::snprintf(buf, sizeof(buf), "%02d:%02d", t.tm_hour, t.tm_min);
+    return buf;
+  }
   void record_toggle() override { toggle_record(); }
   void save_take() override { Serial.println("[ui] GUARDAR (take kept; stop-env already pushed)"); }
   void discard_take() override { ui_discard_take(); }
@@ -353,15 +384,32 @@ public:
 };
 #endif // PANTHEON_HAS_TFT
 
+// F7: kick discovery on AP STA connect/disconnect (Victor's onWiFiEvent). Registered in app_setup()
+// after the SoftAP is up. The handler runs in the WiFi event task context — keep it minimal.
+void on_wifi_event(WiFiEvent_t event, WiFiEventInfo_t) {
+#if defined(ARDUINO_EVENT_WIFI_AP_STACONNECTED) && defined(ARDUINO_EVENT_WIFI_AP_STADISCONNECTED)
+  if (event == ARDUINO_EVENT_WIFI_AP_STACONNECTED ||
+      event == ARDUINO_EVENT_WIFI_AP_STADISCONNECTED) {
+    g_discovery_kick = true;
+  }
+#else
+  (void)event;
+#endif
+}
+
 void discovery_task(void *) {
   for (;;) {
     // Refresh L2 presence only between takes — never churn the radio mid-burst (Victor's
     // discoveryTask skip-while-recording). The trigger burst holds g_wifi_lock; this would
     // otherwise block on it.
     if (g_coord && g_coord->state() == State::Idle) {
+      const std::uint64_t staleness = (g_coord->state() == State::Recording)
+                                          ? eunomia::transport::kStalenessRecordingMs
+                                          : eunomia::transport::kStalenessIdleMs;
+      g_registry.set_staleness_ms(staleness);
       lock_wifi();
       g_softap.ensure_up();
-      g_registry.update(g_softap.station_snapshot());
+      g_registry.update(g_softap.station_snapshot(), static_cast<std::uint64_t>(millis()));
       g_present_cached = static_cast<std::uint32_t>(g_coord->present_count()); // FLAG-C (lock held)
       g_prov_rx.poll(); // gated (OQ-8) — no-op unless PANTHEON_SD_DAEMON_RX
       unlock_wifi();
@@ -380,6 +428,12 @@ void discovery_task(void *) {
                       static_cast<unsigned>(ESP.getMinFreeHeap()),
                       static_cast<unsigned>(eunomia::core::kHeapWarnBytes));
       }
+    }
+    // F7: on AP STA connect/disconnect, skip the 700ms sleep — re-poll immediately.
+    if (g_discovery_kick) {
+      g_discovery_kick = false;
+      vTaskDelay(pdMS_TO_TICKS(50)); // brief yield to let the WiFi stack settle
+      continue;
     }
     vTaskDelay(pdMS_TO_TICKS(700));
   }
@@ -430,17 +484,42 @@ void app_setup() {
   char sess[9];
   coord.set_fob_session_id(fob_session_hex(sess)); // per-boot fob-swap disambiguator (OQ-7)
 
+  // F7: boot-uplink — STA → NTP → task-config fetch → teardown, BEFORE the SoftAP comes up.
+  // At boot no cameras are connected, so STA doesn't tear down any AP.
+  {
+    // (A) heap before boot-uplink
+    Serial.printf("[boot-uplink] heap before: largest=%u free=%u\n",
+                  static_cast<unsigned>(ESP.getMaxAllocHeap()),
+                  static_cast<unsigned>(ESP.getFreeHeap()));
+    const String wssid = g_store.uplink_ssid();
+    const String wpass = g_store.uplink_pass();
+    const String upurl = g_store.uplink_url();
+    g_boot_uplink.configure(std::string(wssid.c_str()), std::string(wpass.c_str()),
+                            std::string(upurl.c_str()), g_assignment.kit_id);
+    g_boot_uplink.run();
+    // (B) heap after boot-uplink (STA torn down, before SoftAP)
+    Serial.printf("[boot-uplink] heap after: largest=%u free=%u\n",
+                  static_cast<unsigned>(ESP.getMaxAllocHeap()),
+                  static_cast<unsigned>(ESP.getFreeHeap()));
+  }
+
   // SoftAP + the depot-provisioned MAC→side map (lockcams populates `sides`).
   g_softap.configure(String(g_assignment.kit_id.c_str()), g_store.cam_pass(), String("192.168.42"));
   g_softap.ensure_up();
+  WiFi.onEvent(on_wifi_event); // F7: kick discovery on AP STA connect/disconnect
   g_registry.set_map(MacSideMap::from_allowlist(std::string(g_store.sides_csv().c_str())));
-  g_prov_rx.begin(); // gated (OQ-8)
+  g_registry.set_staleness_ms(kStalenessIdleMs); // F7: 3s idle staleness window
+  g_prov_rx.begin();                             // gated (OQ-8)
+  // (C) heap after SoftAP — the steady-state baseline
+  Serial.printf("[boot-uplink] heap steady: largest=%u free=%u\n",
+                static_cast<unsigned>(ESP.getMaxAllocHeap()),
+                static_cast<unsigned>(ESP.getFreeHeap()));
 
   // The core-0 discovery worker (UI/input stays on core 1 — the dedicated-core split).
   xTaskCreatePinnedToCore(discovery_task, "disc", 8192, nullptr, 1, nullptr, 0);
-  Serial.printf("[boot] kit=%s ssid=%s ch=%u sides=%s\n", g_assignment.kit_id.c_str(),
+  Serial.printf("[boot] kit=%s ssid=%s ch=%u sides=%s time_set=%s\n", g_assignment.kit_id.c_str(),
                 g_softap.ssid().c_str(), static_cast<unsigned>(g_softap.channel()),
-                g_store.sides_csv().c_str());
+                g_store.sides_csv().c_str(), g_clock.time_set() ? "true" : "false");
 
 #ifdef PANTHEON_HAS_TFT
   // The CYD touchscreen (F3): the UI render + touch loop lives on core 1 (this loop); the discovery

@@ -10,6 +10,7 @@
 #ifndef EUNOMIA_COORDINATOR_TRANSPORT_PROTO_PRESENCE_H
 #define EUNOMIA_COORDINATOR_TRANSPORT_PROTO_PRESENCE_H
 
+#include <cstdint>
 #include <map>
 #include <string>
 #include <utility>
@@ -18,6 +19,12 @@
 #include "seams.h" // core's PresenceSource
 
 namespace eunomia::transport {
+
+// Staleness thresholds: a camera missing from the L2 snapshot for less than this is still
+// considered present (absorbs momentary WiFi hiccups). The reconnect cycle is ~29s (camera-owned
+// low-duty background scan); too-tight idle falsely strands a healthy cam offline for that long.
+inline constexpr std::uint64_t kStalenessIdleMs = 3000;      // 3s — absorbs 4× the 700ms poll
+inline constexpr std::uint64_t kStalenessRecordingMs = 6000; // 6s — drop-proof mid-take
 
 // One AP station-table row. `ip` empty = associated but no DHCP lease yet (skip, as Victor does).
 struct StationEntry {
@@ -55,7 +62,16 @@ private:
 class CameraRegistry {
 public:
   void set_map(MacSideMap m) { map_ = std::move(m); }
-  void update(const std::vector<StationEntry> &stations); // recompute side→{ip, present}
+
+  // Recompute side→{ip, present} from a fresh L2 snapshot. The overload accepting now_ms enables
+  // the staleness window: a camera missing from the snapshot for less than staleness_ms is still
+  // considered present. When now_ms == 0 (or the no-arg overload), staleness is disabled — a
+  // missing camera is immediately absent (the pre-F7 behavior, preserved for tests + backward
+  // compat).
+  void update(const std::vector<StationEntry> &stations);
+  void update(const std::vector<StationEntry> &stations, std::uint64_t now_ms);
+
+  void set_staleness_ms(std::uint64_t ms) { staleness_ms_ = ms; }
 
   std::string ip_for(const std::string &side) const; // "" if not present
   bool is_present(const std::string &side) const;
@@ -65,9 +81,11 @@ private:
   struct Slot {
     std::string ip;
     bool present = false;
+    std::uint64_t last_seen_ms = 0;
   };
   MacSideMap map_;
   std::map<std::string, Slot> slots_; // side → slot
+  std::uint64_t staleness_ms_ = 0;    // 0 = disabled (instant drop, pre-F7 behavior)
 };
 
 // core's PresenceSource backed by the registry (L2-only; no OSC, no socket).
