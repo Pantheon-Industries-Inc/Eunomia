@@ -1,0 +1,27 @@
+[project]
+name = "eunomia-consoles-provisioning"
+version = "0.0.0"
+description = "Eunomia provisioning console — bench flash/assign, ship-gate, roster (Run P1). Depends on contracts + edge/store."
+requires-python = ">=3.12"
+dependencies = [
+    "eunomia-contracts",
+    "eunomia-edge-store",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "pyserial>=3.5",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+dev = ["httpx2>=0.1"]
+
+[tool.uv.sources]
+eunomia-contracts = { workspace = true }
+eunomia-edge-store = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/eunomia_consoles_provisioning"]

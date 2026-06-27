@@ -8,7 +8,7 @@ requires-python = ">=3.12"
 dependencies = []
 
 [tool.uv.workspace]
-members = ["contracts", "tooling/bench-harness", "edge/store"]
+members = ["contracts", "tooling/bench-harness", "edge/store", "consoles/provisioning"]
 
 [dependency-groups]
 # Mirrors Hermes exactly — these exact version bounds. Gates run on tool DEFAULTS:
@@ -23,6 +23,7 @@ dev = [
     "import-linter>=2.0,<3.0",
     "jsonschema>=4.0,<5.0",
     "types-jsonschema>=4.0,<5.0",
+    "httpx2>=0.1",
 ]
 
 # Hermetic codegen (Run 0b, BUILD_PLAN carry-forward #1): PyYAML is pinned in
@@ -37,7 +38,7 @@ python_files = ["test_*.py"]
 addopts = "-ra -q"
 # Hermes's ["tests", "packages"] adapted to Eunomia's top-level module layout (no
 # packages/ parent dir). Grows as Python members are added (ingest/, edge/, ...).
-testpaths = ["contracts", "tooling", "edge/store"]
+testpaths = ["contracts", "tooling", "edge/store", "consoles/provisioning"]
 markers = [
     # DB-backed store tests (Run S1). They skip when EUNOMIA_STORE_TEST_DSN is unset, so the default
     # `make gates` needs no database; `make gates-db` sets the DSN + selects them with `-m db`.
@@ -47,7 +48,7 @@ markers = [
 [tool.importlinter]
 # The dependency law: everything depends only on contracts/. Mirrors the Hermes
 # import-linter pattern (config in pyproject.toml; root_packages = every import name).
-root_packages = ["eunomia_contracts", "eunomia_bench_harness", "eunomia_edge_store"]
+root_packages = ["eunomia_contracts", "eunomia_bench_harness", "eunomia_edge_store", "eunomia_consoles_provisioning"]
 
 [[tool.importlinter.contracts]]
 name = "contracts spine imports nothing internal"
@@ -62,6 +63,12 @@ name = "edge/store depends only on contracts"
 type = "forbidden"
 source_modules = ["eunomia_edge_store"]
 # The store (Run S1) reads the contract spine and nothing else internal (the dependency law).
+forbidden_modules = ["eunomia_bench_harness"]
+
+[[tool.importlinter.contracts]]
+name = "consoles/provisioning depends only on contracts + edge/store"
+type = "forbidden"
+source_modules = ["eunomia_consoles_provisioning"]
 forbidden_modules = ["eunomia_bench_harness"]
 
 [build-system]
