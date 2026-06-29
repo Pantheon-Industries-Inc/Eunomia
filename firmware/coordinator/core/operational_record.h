@@ -30,9 +30,6 @@ std::string serialize_session_signin(const Assignment &a, const std::string &ses
 std::string serialize_station_assignment(const Assignment &a, std::int64_t wallclock,
                                          const std::string &session_id);
 
-std::string serialize_call_lead(const Assignment &a, std::int64_t wallclock,
-                                const std::string &session_id);
-
 } // namespace eunomia::core
 
 #endif // EUNOMIA_COORDINATOR_CORE_OPERATIONAL_RECORD_H

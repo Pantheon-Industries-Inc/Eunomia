@@ -12,7 +12,7 @@ namespace eunomia::transport {
 
 // Our firmware build string for the sidecar's fob_build (distinct from Victor's FOB_FW_VERSION;
 // this is the Eunomia coordinator, adapting his stack).
-inline constexpr const char *kFobBuild = "eunomia-coordinator-f9";
+inline constexpr const char *kFobBuild = "eunomia-coordinator-r1";
 
 // PersistentStore over the ESP32 Preferences/NVS (Victor's "pantheon-fob" namespace). Maps core's
 // long logical keys to ≤15-char NVS keys (nvs_key_for) — see the 15-char-limit finding. Also loads

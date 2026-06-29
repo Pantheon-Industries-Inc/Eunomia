@@ -28,13 +28,10 @@ struct MainView {
   bool start_failed = false; // F6: a recent START was rolled back (show a brief failure sub-line)
   bool time_set = false;     // F7: loud-not-silent clock indicator
   const char *clock_hhmm = nullptr; // F7: "HH:MM" local time (null when time not set)
-  bool llamar_working = false;      // F8: radio-borrow in flight (delayed button)
-  bool llamar_result = false;       // F8: show success/fail toast
-  bool llamar_ok = false;           // F8: the result (true=success, false=fail)
 };
 
 // Where a tap landed on MAIN (Victor's y-band routing).
-enum class MainHit : std::uint8_t { None, Header, Toggle, Call };
+enum class MainHit : std::uint8_t { None, Header, Toggle };
 
 void begin(); // tft.init + rotation + backlight; sets ready()
 bool ready();
@@ -44,21 +41,19 @@ bool ready();
 void render_main(const MainView &v);
 void render_confirm(std::uint32_t take_n);
 void render_confirm_id(const char *name, const char *kit);
-void render_provision(const char *num, const char *err); // REGISTRO (kit number)
-void render_sign_in(const char *num, const char *err);   // operator sign-in (operator number)
-void render_mesa(const char *num, const char *err);      // table number
-void render_confirm_task(const char *station, const char *task_name,
-                         const char *prompt); // F9: confirm resolved task
+void render_provision(const char *num, const char *err);  // REGISTRO (kit number)
+void render_sign_in(const char *num, const char *err);    // operator sign-in (operator number)
+void render_task_entry(const char *num, const char *err); // task_id entry
+void render_confirm_task(const char *task_id);            // confirm entered task_id
 
 // Advance + redraw ONLY the prompt marquee band (no full redraw / no flicker). Call each loop on
 // MAIN.
 void tick_prompt(std::uint32_t now_ms);
 
-// Blocking confirmation flashes (the ack for the already-stopped take / the call). ~1.1 s hold.
+// Blocking confirmation flashes (the ack for the already-stopped take). ~1.1 s hold.
 void confirm_splash_save();    // green GUARDADO
 void confirm_splash_discard(); // red DESCARTADO
 void confirm_splash_error(const char *sub);
-void call_splash(); // yellow LLAMANDO (LLAMAR feedback)
 
 // ---- hit-tests (geometry lives here; flow routes by these) ----
 MainHit hit_main(int sx, int sy);

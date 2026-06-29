@@ -14,8 +14,7 @@ TFT_eSPI tft;
 bool g_ready = false;
 
 // ---- layout geometry (the single source of truth for render AND hit-test) ----
-constexpr int TOG_Y0 = 68, TOG_Y1 = 150;  // big GRABAR/DETENER toggle
-constexpr int ROW_Y0 = 158, ROW_Y1 = 233; // bottom row: full-width LLAMAR
+constexpr int TOG_Y0 = 68, TOG_Y1 = 233; // big GRABAR/DETENER toggle (expanded; R1 removed LLAMAR)
 constexpr int MID = (TOG_Y0 + TOG_Y1) / 2;
 constexpr int PROMPT_Y = 44;   // text baseline-ish y for the prompt band
 constexpr int PROMPT_VIS = 34; // approx chars visible across the band at 9pt
@@ -32,7 +31,6 @@ std::uint32_t g_prompt_scroll_ms = 0;
 
 uint16_t c_green() { return tft.color565(0, 150, 70); }
 uint16_t c_red() { return tft.color565(205, 35, 35); }
-uint16_t c_call() { return tft.color565(245, 205, 0); } // yellow == LLAMAR
 
 // Bilingual rolling prompt: "English | Espanol" (also " / "); English white, Spanish amber
 // trailing. Long prompts MARQUEE (the loop advances g_prompt_scroll). Adapted from
@@ -102,16 +100,6 @@ void draw_lock_glyph(int cx, int cy, uint16_t fg, uint16_t bg) {
   tft.fillRoundRect(cx - 14, cy - 6, 28, 22, 4, fg);
   tft.fillCircle(cx, cy + 3, 3, bg);
   tft.fillRect(cx - 1, cy + 3, 3, 7, bg);
-}
-
-// Telephone handset on the LLAMAR button / CALL splash.
-void draw_phone_icon(int cx, int cy, uint16_t color, uint16_t bg) {
-  const float w = 5.0f;
-  tft.fillSmoothCircle(cx + 4, cy + 10, 4, color, bg);
-  tft.fillSmoothCircle(cx + 4, cy - 10, 4, color, bg);
-  tft.drawWideLine(cx + 1, cy + 10, cx - 6, cy + 4, w, color, bg);
-  tft.drawWideLine(cx - 6, cy + 4, cx - 6, cy - 4, w, color, bg);
-  tft.drawWideLine(cx - 6, cy - 4, cx + 1, cy - 10, w, color, bg);
 }
 
 // Shared numeric-entry body (REGISTRO + sign-in + MESA). Adapted from renderNumEntry().
@@ -193,7 +181,6 @@ void render_main(const MainView &v) {
   }
   const uint16_t C_GREEN = c_green();
   const uint16_t C_RED = c_red();
-  const uint16_t C_CALL = c_call();
   uint16_t camCol = (v.cam == CamLight::Go) ? C_GREEN : C_RED;
   g_prompt = (v.prompt != nullptr) ? String(v.prompt) : String("");
   tft.fillScreen(TFT_BLACK);
@@ -222,7 +209,7 @@ void render_main(const MainView &v) {
   }
   tft.setTextDatum(TR_DATUM);
   tft.setTextColor(tft.color565(205, 205, 205), TFT_BLACK);
-  tft.drawString("toca 2x=cambiar mesa", 314, 26, 2);
+  tft.drawString("toca 2x=cambiar tarea", 314, 26, 2);
   draw_prompt_band();
   // big GRABAR/DETENER/ESPERA toggle. The treatment is render_state's MainButton (FLAG-B): a
   // ui-owned DelayedButton in flight => Working (lockout); recording => DETENER; idle+cams =>
@@ -270,37 +257,6 @@ void render_main(const MainView &v) {
     } else {
       tft.drawString(rec ? "Stop recording" : "Start recording", 160, MID + 24);
     }
-  }
-  // bottom row: full-width LLAMAR (call lead). F8: radio-borrow + POST with §1.8 delayed button.
-  if (v.llamar_result) {
-    // F8: brief success/fail toast (replaces the F3 blocking splash)
-    uint16_t toast_bg = v.llamar_ok ? C_GREEN : C_RED;
-    tft.fillRoundRect(8, ROW_Y0, 304, ROW_Y1 - ROW_Y0, 8, toast_bg);
-    tft.setTextColor(TFT_WHITE, toast_bg);
-    tft.setTextDatum(MC_DATUM);
-    tft.setFreeFont(&FreeSansBold12pt7b);
-    tft.drawString(v.llamar_ok ? "NOTIFICADO" : "FALLO", 160, ROW_Y0 + 24);
-    tft.drawString(v.llamar_ok ? "Lead notified" : "Call failed - reintenta", 160, ROW_Y0 + 52, 2);
-  } else if (v.llamar_working) {
-    // F8: delayed-button working state (radio borrow in flight)
-    tft.fillRoundRect(8, ROW_Y0, 304, ROW_Y1 - ROW_Y0, 8, C_CALL);
-    tft.setTextColor(TFT_BLACK, C_CALL);
-    tft.setTextDatum(MC_DATUM);
-    tft.setFreeFont(&FreeSansBold12pt7b);
-    tft.drawString("LLAMANDO", 160, ROW_Y0 + 24);
-    tft.drawString("Calling...", 160, ROW_Y0 + 52, 2);
-    draw_phone_icon(64, ROW_Y0 + 30, TFT_BLACK, C_CALL);
-    draw_phone_icon(256, ROW_Y0 + 30, TFT_BLACK, C_CALL);
-  } else {
-    // Normal idle state
-    tft.fillRoundRect(8, ROW_Y0, 304, ROW_Y1 - ROW_Y0, 8, C_CALL);
-    tft.setTextColor(TFT_BLACK, C_CALL);
-    tft.setTextDatum(MC_DATUM);
-    tft.setFreeFont(&FreeSansBold12pt7b);
-    tft.drawString("LLAMAR", 160, ROW_Y0 + 24);
-    tft.drawString("Call team lead", 160, ROW_Y0 + 52, 2);
-    draw_phone_icon(64, ROW_Y0 + 30, TFT_BLACK, C_CALL);
-    draw_phone_icon(256, ROW_Y0 + 30, TFT_BLACK, C_CALL);
   }
   tft.setTextDatum(TL_DATUM);
 }
@@ -383,12 +339,12 @@ void render_sign_in(const char *num, const char *err) {
                    num != nullptr ? String(num) : String(), err, true);
 }
 
-void render_mesa(const char *num, const char *err) {
-  render_num_entry("ELIGE MESA", "Mesa / Table number", num != nullptr ? String(num) : String(),
-                   err, true);
+void render_task_entry(const char *num, const char *err) {
+  render_num_entry("ELIGE TAREA", "Numero de tarea / Task ID",
+                   num != nullptr ? String(num) : String(), err, true);
 }
 
-void render_confirm_task(const char *station, const char *task_name_str, const char *prompt_str) {
+void render_confirm_task(const char *task_id) {
   if (!g_ready) {
     return;
   }
@@ -398,24 +354,14 @@ void render_confirm_task(const char *station, const char *task_name_str, const c
   tft.setTextDatum(MC_DATUM);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setFreeFont(&FreeSansBold12pt7b);
-  char hdr[32];
-  std::snprintf(hdr, sizeof(hdr), "MESA %s", (station != nullptr) ? station : "");
-  tft.drawString(hdr, 160, 18);
+  tft.drawString("CONFIRMA TAREA", 160, 18);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setFreeFont(&FreeSansBold18pt7b);
-  String tn = (task_name_str != nullptr) ? String(task_name_str) : String("");
-  if (tft.textWidth(tn) > 300) {
-    tft.setFreeFont(&FreeSansBold12pt7b);
-  }
-  tft.drawString(tn, 160, 56);
-  tft.setTextColor(tft.color565(210, 210, 210), TFT_BLACK);
-  String pr = (prompt_str != nullptr) ? String(prompt_str) : String("");
-  if (pr.length() > 38) {
-    pr = pr.substring(0, 36) + "..";
-  }
-  tft.drawString(pr, 160, 94, 2);
+  char tid[32];
+  std::snprintf(tid, sizeof(tid), "TAREA %s", (task_id != nullptr) ? task_id : "");
+  tft.drawString(tid, 160, 64);
   tft.setTextColor(tft.color565(205, 205, 205), TFT_BLACK);
-  tft.drawString("Es correcto? / Is this correct?", 160, 118, 2);
+  tft.drawString("Es correcto? / Is this correct?", 160, 104, 2);
   tft.fillRoundRect(8, 138, 150, 94, 10, C_GREEN);
   tft.setTextColor(TFT_WHITE, C_GREEN);
   tft.setFreeFont(&FreeSansBold18pt7b);
@@ -425,7 +371,7 @@ void render_confirm_task(const char *station, const char *task_name_str, const c
   tft.setTextColor(TFT_WHITE, C_RED);
   tft.setFreeFont(&FreeSansBold18pt7b);
   tft.drawString("NO", 237, 172);
-  tft.drawString("Otra mesa", 237, 206, 2);
+  tft.drawString("Cambiar", 237, 206, 2);
   tft.setTextDatum(TL_DATUM);
 }
 
@@ -441,7 +387,7 @@ void tick_prompt(std::uint32_t now_ms) {
 }
 
 namespace {
-// Full-screen confirmation flash + ~1.1 s hold (the ack for the already-stopped take / the call).
+// Full-screen confirmation flash + ~1.1 s hold (the ack for the already-stopped take).
 // The blocking hold is safe (nothing is mid-record) and doubles as a release guard so lifting off
 // can't bleed into a MAIN tap.
 void splash(uint16_t bg, const char *big, const char *sub) {
@@ -464,24 +410,13 @@ void confirm_splash_save() { splash(c_green(), "GUARDADO", "Saved"); }
 void confirm_splash_discard() { splash(c_red(), "DESCARTADO", "Archivado"); }
 void confirm_splash_error(const char *sub) { splash(c_red(), "ERROR", sub); }
 
-void call_splash() {
-  // F8: replaced by the delayed-button working state in render_main(). Kept as a no-op so the
-  // declaration in screens.h compiles; nothing calls it.
-}
-
 // ---- hit-tests ----
 MainHit hit_main(int sx, int sy) {
   (void)sx;
   if (sy < TOG_Y0) {
     return MainHit::Header;
   }
-  if (sy <= TOG_Y1) {
-    return MainHit::Toggle;
-  }
-  if (sy >= ROW_Y0) {
-    return MainHit::Call;
-  }
-  return MainHit::None;
+  return MainHit::Toggle;
 }
 
 bool keypad_hit(int sx, int sy, int &row, int &col) {

@@ -21,10 +21,8 @@
 #include "operational_record.h"
 #include "presence.h"
 #include "provisioning_rx.h"
-#include "radio_borrow.h"
 #include "sidecar_assembly.h"
 #include "softap.h"
-#include "task_config.h"
 #include "uplink.h"
 #include "wifi_conn.h"
 #include "x3_capture_device.h"
@@ -72,13 +70,10 @@ CameraRegistry g_registry;
 StationTablePresence g_presence(g_registry);
 DisabledUplink g_uplink;
 BootUplink g_boot_uplink;
-RadioBorrow g_radio_borrow;       // F8: LLAMAR radio-borrow lifecycle
 LittleFsEpisodeLog g_episode_log; // the durable §1.7 ordinal-join backup (begin() after LittleFS)
 WifiConn g_conn_left, g_conn_right, g_conn_lock;
 ArduinoDelayer g_delayer;
 Assignment g_assignment;
-eunomia::core::TaskConfig
-    g_task_config;        // F9: parsed boot-fetched task config (valid=false until parsed)
 std::string g_session_id; // F9: per-shift session id (minted at sign-in)
 AppEnvProvider g_env(g_assignment);
 X3CaptureDevice g_left("left", g_registry, g_conn_left, g_delayer, g_env);
@@ -160,43 +155,6 @@ void toggle_record() {
   }
 }
 
-// F8: LLAMAR — radio-borrow + POST + durable log. Gated on Idle (belt-and-suspenders with the UI).
-bool do_llamar() {
-  if (!g_coord || g_coord->state() != State::Idle) {
-    Serial.println("[llamar] refused (not idle)");
-    return false;
-  }
-  const std::string kit = g_assignment.kit_id;
-  const std::string endpoint = "/api/llamar/" + kit;
-  const std::int64_t ts = g_clock.unix_seconds();
-
-  // Build JSON payload
-  std::string body;
-  body.reserve(192);
-  body += "{\"kit_id\":\"";
-  body += kit;
-  body += "\",\"operator_id\":\"";
-  body += g_assignment.operator_id;
-  body += "\",\"station_id\":\"";
-  body += g_assignment.station_id;
-  body += "\",\"fob_session_id\":\"";
-  body += g_assignment.fob_session_id;
-  body += "\",\"timestamp_unix\":";
-  body += std::to_string(ts);
-  body += ",\"event\":\"call_lead\"}";
-
-  lock_wifi();
-  RadioBorrowResult r = g_radio_borrow.borrow_and_post(g_softap, endpoint, body);
-  unlock_wifi();
-
-  // Durable log (best-effort — a failed write does NOT affect the result)
-  g_episode_log.append(eunomia::core::serialize_call_lead(g_assignment, ts, g_session_id));
-
-  Serial.printf("[llamar] done attempted=%d posted=%d ap_restored=%d\n", r.attempted ? 1 : 0,
-                r.posted ? 1 : 0, r.ap_restored ? 1 : 0);
-  return r.posted;
-}
-
 // Depot binding (`cmd=lockcams`): snapshot present stations (MAC+IP, discovery order), learn each
 // serial via a ONE-SHOT /osc/info (Victor's f96b97a fix — depot, idle, serialized; NOT background
 // OSC), then persist BOTH the MAC→side map (our L2 presence binding — OQ-2 B) and the serial
@@ -246,7 +204,7 @@ void print_status() {
   const auto &br = g_boot_uplink.result();
   Serial.printf("{\"kit_id\":\"%s\",\"operator_id\":\"%s\",\"station\":\"%s\",\"cams\":%u,"
                 "\"ordinal\":%lld,\"time_set\":%s,\"ntp_synced\":%s,"
-                "\"boot_uplink\":{\"attempted\":%s,\"associated\":%s,\"ntp\":%s,\"config\":%s},"
+                "\"boot_uplink\":{\"attempted\":%s,\"associated\":%s,\"ntp\":%s},"
                 "\"ap_ssid\":\"%s\",\"ap_ch\":%u,\"sides\":\"%s\","
                 "\"free_heap\":%u,\"min_heap\":%u,\"largest_free_block\":%u,"
                 "\"log_bytes\":%lu,\"fob_build\":\"%s\"}\n",
@@ -255,9 +213,9 @@ void print_status() {
                 g_coord ? static_cast<long long>(g_coord->current_ordinal()) : 0,
                 g_clock.time_set() ? "true" : "false", br.ntp_synced ? "true" : "false",
                 br.attempted ? "true" : "false", br.associated ? "true" : "false",
-                br.ntp_synced ? "true" : "false", br.config_fetched ? "true" : "false",
-                g_softap.ssid().c_str(), static_cast<unsigned>(g_softap.channel()),
-                g_store.sides_csv().c_str(), static_cast<unsigned>(ESP.getFreeHeap()),
+                br.ntp_synced ? "true" : "false", g_softap.ssid().c_str(),
+                static_cast<unsigned>(g_softap.channel()), g_store.sides_csv().c_str(),
+                static_cast<unsigned>(ESP.getFreeHeap()),
                 static_cast<unsigned>(ESP.getMinFreeHeap()),
                 static_cast<unsigned>(ESP.getMaxAllocHeap()),
                 static_cast<unsigned long>(g_episode_log.bytes()), kFobBuild);
@@ -271,8 +229,6 @@ void apply_kv(const String &key, const String &val) {
       lockcams();
     } else if (val == "status") {
       print_status();
-    } else if (val == "llamar") {
-      do_llamar();
     }
   } else if (key == "time") {
     g_clock.set_unix_time(static_cast<std::uint32_t>(strtoul(val.c_str(), nullptr, 10)));
@@ -407,7 +363,6 @@ public:
     std::snprintf(buf, sizeof(buf), "%02d:%02d", t.tm_hour, t.tm_min);
     return buf;
   }
-  bool has_task_config() override { return g_task_config.valid; }
   const char *task_name() override { return g_assignment.task_name.c_str(); }
   void record_toggle() override { toggle_record(); }
   void save_take() override { Serial.println("[ui] GUARDAR (take kept; stop-env already pushed)"); }
@@ -429,47 +384,22 @@ public:
     }
     Serial.printf("[ui] SIGN-IN op=%s session=%s\n", op, sess);
   }
-  bool resolve_station(const char *station_id) override {
-    const auto *sa = eunomia::core::resolve_assignment(g_task_config, std::string(station_id));
-    if (sa == nullptr) {
-      return false;
-    }
-    // Stage the resolved task fields into NVS + assignment (operator will confirm on ConfirmTask).
+  void select_table(const char *t) override {
+    g_assignment.task_id = t;
+    g_assignment.task_name = t;
+    g_assignment.task_source = "operator";
+    g_assignment.prompt = std::string("Tarea ") + t + " | Task " + t;
     Preferences p;
     p.begin("pantheon-fob", false);
-    p.putString("station", station_id);
-    p.putString("prompt", sa->prompt.c_str());
+    p.putString("prompt", g_assignment.prompt.c_str());
     p.end();
-    g_assignment.station_id = station_id;
-    g_assignment.task_id = sa->task_id;
-    g_assignment.task_name = sa->task_name;
-    g_assignment.prompt = sa->prompt;
-    g_assignment.rotation_id = sa->rotation_id;
-    g_assignment.task_source = "boot_config";
-    return true;
-  }
-  void select_table(const char *t) override {
-    if (g_task_config.valid) {
-      // F9: task fields already staged by resolve_station; commit the full assignment.
-      g_assignment.station_id = t;
-      if (g_coord != nullptr) {
-        g_coord->set_assignment(g_assignment);
-      }
-      g_episode_log.append(eunomia::core::serialize_station_assignment(
-          g_assignment, g_clock.unix_seconds(), g_session_id));
-      Serial.printf("[ui] TABLE %s task=%s (boot_config)\n", t, g_assignment.task_id.c_str());
-    } else {
-      // Manual mode: no task config. Current behavior.
-      Preferences p;
-      p.begin("pantheon-fob", false);
-      p.putString("station", t);
-      p.putString("prompt", String("Mesa ") + t + " | Table " + t);
-      p.end();
-      reload_assignment();
-      Serial.printf("[ui] TABLE %s (manual, task_source=none)\n", t);
+    if (g_coord != nullptr) {
+      g_coord->set_assignment(g_assignment);
     }
+    g_episode_log.append(eunomia::core::serialize_station_assignment(
+        g_assignment, g_clock.unix_seconds(), g_session_id));
+    Serial.printf("[ui] TASK %s (operator)\n", t);
   }
-  bool call_lead() override { return do_llamar(); }
 };
 #endif // PANTHEON_HAS_TFT
 
@@ -573,7 +503,7 @@ void app_setup() {
   char sess[9];
   coord.set_fob_session_id(fob_session_hex(sess)); // per-boot fob-swap disambiguator (OQ-7)
 
-  // F7: boot-uplink — STA → NTP → task-config fetch → teardown, BEFORE the SoftAP comes up.
+  // F7: boot-uplink — STA → NTP → teardown, BEFORE the SoftAP comes up.
   // At boot no cameras are connected, so STA doesn't tear down any AP.
   {
     // (A) heap before boot-uplink
@@ -582,27 +512,12 @@ void app_setup() {
                   static_cast<unsigned>(ESP.getFreeHeap()));
     const String wssid = g_store.uplink_ssid();
     const String wpass = g_store.uplink_pass();
-    const String upurl = g_store.uplink_url();
-    g_boot_uplink.configure(std::string(wssid.c_str()), std::string(wpass.c_str()),
-                            std::string(upurl.c_str()), g_assignment.kit_id);
-    g_radio_borrow.configure({std::string(wssid.c_str()), std::string(wpass.c_str()),
-                              std::string(upurl.c_str()), g_assignment.kit_id});
+    g_boot_uplink.configure(std::string(wssid.c_str()), std::string(wpass.c_str()));
     g_boot_uplink.run();
     // (B) heap after boot-uplink (STA torn down, before SoftAP)
     Serial.printf("[boot-uplink] heap after: largest=%u free=%u\n",
                   static_cast<unsigned>(ESP.getMaxAllocHeap()),
                   static_cast<unsigned>(ESP.getFreeHeap()));
-    // F9: parse the task-config response (if fetched). The parsed config is used by the MESA screen
-    // to resolve station→task. Parsing happens once; the config lives for the fob's lifetime (until
-    // the next battery swap / reboot refreshes it).
-    const std::string &tcr = g_boot_uplink.task_config_response();
-    if (!tcr.empty()) {
-      g_task_config = eunomia::core::parse_task_config(tcr);
-      Serial.printf("[boot-uplink] task-config: valid=%s assignments=%u roster=%u\n",
-                    g_task_config.valid ? "true" : "false",
-                    static_cast<unsigned>(g_task_config.assignments.size()),
-                    static_cast<unsigned>(g_task_config.roster.size()));
-    }
   }
 
   // SoftAP + the depot-provisioned MAC→side map (lockcams populates `sides`).

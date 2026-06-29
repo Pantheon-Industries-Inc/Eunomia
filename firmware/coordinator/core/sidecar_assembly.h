@@ -34,7 +34,7 @@ struct Assignment {
   std::string prompt;
   std::string rotation_id;
   std::string session_id;
-  std::string task_source = "none"; // nand_staged | sd_assignment | none (§3.5)
+  std::string task_source = "none"; // nand_staged | sd_assignment | operator | none (§3.5)
   std::string assignment_source;
   std::string site_id;
   std::string fob_id;

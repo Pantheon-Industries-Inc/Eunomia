@@ -220,57 +220,6 @@ void test_present_count_accessor() {
                     static_cast<int>(ui::cam_light(coord.present_count(), 2)));
 }
 
-// ---- F8: LLAMAR delayed-button lockout (§1.8 — a re-tap during radio borrow is dropped) ----
-void test_llamar_lockout() {
-  DelayedButton llamar;
-  TEST_ASSERT_EQUAL(static_cast<int>(Press::Accepted), static_cast<int>(llamar.press()));
-  TEST_ASSERT_TRUE(llamar.working());
-  TEST_ASSERT_EQUAL(static_cast<int>(Press::IgnoredLocked), static_cast<int>(llamar.press()));
-  TEST_ASSERT_EQUAL(static_cast<int>(Press::IgnoredLocked), static_cast<int>(llamar.press()));
-  llamar.complete();
-  TEST_ASSERT_FALSE(llamar.working());
-  TEST_ASSERT_EQUAL(static_cast<int>(Press::Accepted), static_cast<int>(llamar.press()));
-}
-
-// ---- F8: LLAMAR gated on state — locked while recording (belt-and-suspenders with flow.cpp) ----
-void test_llamar_gated_on_state() {
-  FakeClock clock;
-  CounterRng rng;
-  FakeStore store;
-  FakePresence presence;
-  presence.list = {"left", "right"};
-  FakeDevice dev_l, dev_r;
-  Coordinator::Deps deps;
-  deps.clock = &clock;
-  deps.rng = &rng;
-  deps.store = &store;
-  deps.presence = &presence;
-  Coordinator::Fleet fleet = {{"left", &dev_l}, {"right", &dev_r}};
-  Coordinator coord(deps, fleet, 2);
-
-  // Idle → LLAMAR allowed
-  TEST_ASSERT_EQUAL(static_cast<int>(State::Idle), static_cast<int>(coord.state()));
-
-  // Recording → LLAMAR locked
-  coord.mint_episode_id();
-  TEST_ASSERT_TRUE(coord.trigger(kFleet));
-  TEST_ASSERT_EQUAL(static_cast<int>(State::Recording), static_cast<int>(coord.state()));
-  // The transport gate would check coord.state() != Idle → refuse
-}
-
-// ---- F8: LLAMAR and toggle are INDEPENDENT delayed buttons (no cross-lockout) ----
-void test_llamar_toggle_independent() {
-  DelayedButton toggle;
-  DelayedButton llamar;
-  TEST_ASSERT_EQUAL(static_cast<int>(Press::Accepted), static_cast<int>(toggle.press()));
-  TEST_ASSERT_TRUE(toggle.working());
-  // LLAMAR is still free even though toggle is working
-  TEST_ASSERT_EQUAL(static_cast<int>(Press::Accepted), static_cast<int>(llamar.press()));
-  TEST_ASSERT_TRUE(llamar.working());
-  toggle.complete();
-  llamar.complete();
-}
-
 void setUp() {}
 void tearDown() {}
 
@@ -282,8 +231,5 @@ int main(int, char **) {
   RUN_TEST(test_spam_safety_through_input_path);
   RUN_TEST(test_loud_not_silent_through_input_path);
   RUN_TEST(test_present_count_accessor);
-  RUN_TEST(test_llamar_lockout);
-  RUN_TEST(test_llamar_gated_on_state);
-  RUN_TEST(test_llamar_toggle_independent);
   return UNITY_END();
 }
