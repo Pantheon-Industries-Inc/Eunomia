@@ -16,7 +16,6 @@ using eunomia::core::State;
 // Long enough to read, short enough to clear itself so the operator just retries. Not a blocking
 // splash (NOTE: loud-not-silent, but light).
 constexpr std::uint32_t kStartFailNoticeMs = 2500;
-constexpr std::uint32_t kLlamarResultMs = 2500; // F8: LLAMAR success/fail toast duration
 
 // Cheap djb2 over a C string — for the MAIN redraw-on-change signature only.
 std::uint32_t str_hash(const char *s) {
@@ -53,9 +52,6 @@ void Flow::render_main_now() {
   v.start_failed = (start_fail_until_ms_ != 0); // F6: brief rolled-back-START notice (tick expires)
   v.time_set = host_.time_set();
   v.clock_hhmm = host_.clock_hhmm();
-  v.llamar_working = llamar_btn_.working();
-  v.llamar_result = (llamar_result_until_ms_ != 0);
-  v.llamar_ok = llamar_ok_;
   screens::render_main(v);
 }
 
@@ -75,14 +71,11 @@ void Flow::render_current() {
     break;
   }
   case Screen::Mesa:
-    screens::render_mesa(mesa_num_.c_str(), err_.c_str());
+    screens::render_task_entry(mesa_num_.c_str(), err_.c_str());
     break;
-  case Screen::ConfirmTask: {
-    const char *tn = host_.task_name();
-    const char *pr = host_.prompt();
-    screens::render_confirm_task(mesa_num_.c_str(), tn ? tn : "", pr ? pr : "");
+  case Screen::ConfirmTask:
+    screens::render_confirm_task(mesa_num_.c_str());
     break;
-  }
   case Screen::Main:
     render_main_now();
     break;
@@ -130,19 +123,19 @@ void Flow::dispatch(int sx, int sy, std::uint32_t now) {
     const bool recording = (host_.core_state() == State::Recording);
     const screens::MainHit hit = screens::hit_main(sx, sy);
     if (recording) {
-      // While recording the ONLY valid action is DETENER; header/LLAMAR are disabled so a stray
+      // While recording the ONLY valid action is DETENER; header taps are disabled so a stray
       // touch can never trap the operator away from the stop/decision flow.
       if (hit == screens::MainHit::Toggle) {
         do_toggle(now);
       }
     } else if (hit == screens::MainHit::Header) {
-      // Table change = a DELIBERATE double-tap within 1.5 s (a stray header tap only arms, stays on
+      // Task change = a DELIBERATE double-tap within 1.5 s (a stray header tap only arms, stays on
       // MAIN). The header hint reads "toca 2x" so it is discoverable.
       if (hdr_arm_ms_ != 0 && now - hdr_arm_ms_ < 1500) {
         hdr_arm_ms_ = 0;
         mesa_num_.clear();
         err_.clear();
-        screen_ = Screen::Mesa;
+        screen_ = Screen::Mesa; // re-enter task_id
         force_ = true;
       } else {
         hdr_arm_ms_ = now;
@@ -157,15 +150,6 @@ void Flow::dispatch(int sx, int sy, std::uint32_t now) {
       } else {
         force_ = true;
       }
-    } else if (hit == screens::MainHit::Call) {
-      if (llamar_btn_.press() != Press::Accepted) {
-        break;
-      }
-      render_main_now();
-      llamar_ok_ = host_.call_lead();
-      llamar_btn_.complete();
-      llamar_result_until_ms_ = now + kLlamarResultMs;
-      force_ = true;
     }
     break;
   }
@@ -198,14 +182,13 @@ void Flow::dispatch(int sx, int sy, std::uint32_t now) {
   case Screen::ConfirmTask:
     if (screens::confirm_id_in_band(sy)) {
       if (screens::confirm_id_is_yes(sx, sy)) {
-        // F9: operator confirmed the resolved task — commit station + task fields to NVS.
         host_.select_table(mesa_num_.c_str());
         take_n_ = 0;
         screen_ = Screen::Main;
       } else {
         mesa_num_.clear();
         err_.clear();
-        screen_ = Screen::Mesa; // re-enter station number
+        screen_ = Screen::Mesa; // re-enter task_id
       }
       force_ = true;
     }
@@ -274,21 +257,10 @@ void Flow::dispatch(int sx, int sy, std::uint32_t now) {
         }
       } else if (screens::keypad_is_enter(r, c)) {
         if (mesa_num_.empty()) {
-          err_ = "Escribe el numero de mesa / Enter table number";
-        } else if (host_.has_task_config()) {
-          // F9: server-driven resolution — resolve station→task from the boot-fetched config.
-          if (host_.resolve_station(mesa_num_.c_str())) {
-            err_.clear();
-            screen_ = Screen::ConfirmTask; // show resolved task for operator confirmation
-          } else {
-            err_ = "Sin tarea para mesa / No task for table";
-          }
+          err_ = "Escribe el numero de tarea / Enter task ID";
         } else {
-          // Manual mode: no task config available (fetch failed/skipped). Current behavior.
           err_.clear();
-          host_.select_table(mesa_num_.c_str());
-          take_n_ = 0;
-          screen_ = Screen::Main;
+          screen_ = Screen::ConfirmTask;
         }
       } else if (mesa_num_.size() < 9) {
         mesa_num_ += screens::keypad_label(r, c)[0];
@@ -321,19 +293,13 @@ void Flow::tick(std::uint32_t now) {
       start_fail_until_ms_ = 0;
       force_ = true;
     }
-    if (llamar_result_until_ms_ != 0 &&
-        static_cast<std::int32_t>(now - llamar_result_until_ms_) >= 0) {
-      llamar_result_until_ms_ = 0;
-      force_ = true;
-    }
     // MAIN redraws ONLY on change (no idle flicker) — but a cam dropping (present_count) or a state
     // change must repaint. Signature mirrors exactly what MAIN draws.
-    const std::uint32_t sig =
-        static_cast<std::uint32_t>(host_.present_count()) ^
-        (static_cast<std::uint32_t>(host_.core_state()) << 8) ^
-        (toggle_btn_.working() ? 0x10000u : 0u) ^ (start_fail_until_ms_ != 0 ? 0x20000u : 0u) ^
-        (llamar_btn_.working() ? 0x40000u : 0u) ^ (llamar_result_until_ms_ != 0 ? 0x80000u : 0u) ^
-        (str_hash(host_.station()) * 3u) ^ (str_hash(host_.prompt()) * 7u);
+    const std::uint32_t sig = static_cast<std::uint32_t>(host_.present_count()) ^
+                              (static_cast<std::uint32_t>(host_.core_state()) << 8) ^
+                              (toggle_btn_.working() ? 0x10000u : 0u) ^
+                              (start_fail_until_ms_ != 0 ? 0x20000u : 0u) ^
+                              (str_hash(host_.station()) * 3u) ^ (str_hash(host_.prompt()) * 7u);
     if (force_ || sig != main_sig_) {
       main_sig_ = sig;
       force_ = false;

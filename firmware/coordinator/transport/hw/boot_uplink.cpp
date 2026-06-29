@@ -1,7 +1,6 @@
 #include "boot_uplink.h"
 
 #include <Arduino.h>
-#include <HTTPClient.h>
 #include <WiFi.h>
 #include <cstdio>
 #include <time.h>
@@ -11,7 +10,6 @@ namespace eunomia::transport {
 namespace {
 constexpr std::uint32_t kAssocTimeoutMs = 5000; // 5s — fast fail at boot (Victor uses 8s runtime)
 constexpr std::uint32_t kNtpTimeoutMs = 4000;   // 4s — proven in Victor's wifiJoin
-constexpr std::uint32_t kFetchTimeoutMs = 3000; // 3s — task-config is small JSON
 constexpr std::uint32_t kDhcpSettleMs = 350;    // DHCP/route settle (Victor's uplink value)
 constexpr std::uint32_t kRadioSettleMs = 100;   // radio settle after mode switch
 constexpr long kTimeSanityFloor = 1700000000L;  // 2023-11 (Victor's / EspClock's floor)
@@ -20,12 +18,9 @@ constexpr long kTimeSanityFloor = 1700000000L;  // 2023-11 (Victor's / EspClock'
 constexpr const char *kDefaultTz = "PST8PDT,M3.2.0,M11.1.0";
 } // namespace
 
-void BootUplink::configure(const std::string &ssid, const std::string &pass,
-                           const std::string &base_url, const std::string &kit_id) {
+void BootUplink::configure(const std::string &ssid, const std::string &pass) {
   ssid_ = ssid;
   pass_ = pass;
-  base_url_ = base_url;
-  kit_id_ = kit_id;
 }
 
 bool BootUplink::sta_associate() {
@@ -95,27 +90,7 @@ BootUplinkResult BootUplink::run() {
   // Phase 2: NTP sync (best-effort — a miss is harmless, clock stays loud-not-silent)
   result_.ntp_synced = ntp_sync();
 
-  // Phase 3: task-config fetch (best-effort, depends on base_url being configured)
-  if (!base_url_.empty() && !kit_id_.empty()) {
-    HTTPClient http;
-    http.setTimeout(static_cast<int>(kFetchTimeoutMs));
-    const std::string url = base_url_ + "/api/task-config/" + kit_id_;
-    http.begin(url.c_str());
-    const int code = http.GET();
-    if (code == 200) {
-      result_.task_config_body = http.getString().c_str();
-      result_.config_fetched = true;
-      Serial.printf("[boot-uplink] task-config fetched (%u bytes)\n",
-                    static_cast<unsigned>(result_.task_config_body.size()));
-    } else {
-      Serial.printf("[boot-uplink] task-config fetch failed (http=%d)\n", code);
-    }
-    http.end();
-  } else {
-    Serial.println("[boot-uplink] task-config fetch skipped (no upurl or kit_id)");
-  }
-
-  // Phase 4: tear down STA so the SoftAP can start on a clean radio
+  // Phase 3: tear down STA so the SoftAP can start on a clean radio
   sta_teardown();
   return result_;
 }

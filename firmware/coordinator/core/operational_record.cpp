@@ -129,18 +129,4 @@ std::string serialize_station_assignment(const Assignment &a, std::int64_t wallc
   return out;
 }
 
-std::string serialize_call_lead(const Assignment &a, std::int64_t wallclock,
-                                const std::string &session_id) {
-  std::string out;
-  out.reserve(128);
-  out += "{\"T\":\"S\",\"st\":\"call\"";
-  json_int_field(out, "t", wallclock);
-  json_str_field(out, "k", a.kit_id);
-  json_str_field(out, "sid", session_id);
-  json_str_field(out, "op", a.operator_id);
-  json_str_field(out, "stn", a.station_id);
-  out.push_back('}');
-  return out;
-}
-
 } // namespace eunomia::core

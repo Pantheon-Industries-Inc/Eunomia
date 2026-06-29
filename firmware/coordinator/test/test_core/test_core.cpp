@@ -24,7 +24,6 @@
 #include "operational_record.h"
 #include "ordinal_log.h"
 #include "sidecar_assembly.h"
-#include "task_config.h"
 #include "trigger_state_machine.h"
 
 using namespace eunomia::core;
@@ -615,94 +614,7 @@ void test_env_projections() {
   TEST_ASSERT_TRUE(stop.find("ARCHIVE=\"1\"") != std::string::npos);
 }
 
-// ---- F9: task-config parsing ----
-void test_parse_task_config() {
-  const std::string json = R"({
-    "site_id": "sf",
-    "assignments": [
-      {"station_id":"3","task_id":"fold","task_name":"Fold Towel",
-       "prompt":"Fold the towel","rotation_id":"A","task_version":2},
-      {"station_id":"5","task_id":"pour","task_name":"Pour Water",
-       "prompt":"Pour water","rotation_id":"B","task_version":1}
-    ],
-    "roster": ["101","102"],
-    "fetched_at": "2026-06-27T08:15:00Z"
-  })";
-  const auto cfg = parse_task_config(json);
-  TEST_ASSERT_TRUE(cfg.valid);
-  TEST_ASSERT_EQUAL_STRING("sf", cfg.site_id.c_str());
-  TEST_ASSERT_EQUAL(2, static_cast<int>(cfg.assignments.size()));
-  TEST_ASSERT_EQUAL_STRING("3", cfg.assignments[0].station_id.c_str());
-  TEST_ASSERT_EQUAL_STRING("fold", cfg.assignments[0].task_id.c_str());
-  TEST_ASSERT_EQUAL_STRING("Fold Towel", cfg.assignments[0].task_name.c_str());
-  TEST_ASSERT_EQUAL_STRING("A", cfg.assignments[0].rotation_id.c_str());
-  TEST_ASSERT_EQUAL(2, cfg.assignments[0].task_version);
-  TEST_ASSERT_EQUAL_STRING("5", cfg.assignments[1].station_id.c_str());
-  TEST_ASSERT_EQUAL(2, static_cast<int>(cfg.roster.size()));
-  TEST_ASSERT_EQUAL_STRING("101", cfg.roster[0].c_str());
-  TEST_ASSERT_EQUAL_STRING("2026-06-27T08:15:00Z", cfg.fetched_at.c_str());
-}
-
-void test_parse_task_config_malformed() {
-  const auto cfg = parse_task_config("{not valid json!!!");
-  TEST_ASSERT_FALSE(cfg.valid);
-}
-
-void test_parse_task_config_empty() {
-  const auto cfg = parse_task_config("");
-  TEST_ASSERT_FALSE(cfg.valid);
-}
-
-void test_parse_task_config_missing_assignments() {
-  const auto cfg = parse_task_config(R"({"site_id":"sf"})");
-  TEST_ASSERT_FALSE(cfg.valid);
-}
-
-void test_parse_task_config_partial_assignment() {
-  const std::string json = R"({
-    "assignments": [
-      {"station_id":"3","task_id":"fold","task_name":"Fold"},
-      {"station_id":"","task_id":"bad"},
-      {"task_id":"no_station"},
-      {"station_id":"7","task_id":"pour","task_name":"Pour"}
-    ]
-  })";
-  const auto cfg = parse_task_config(json);
-  TEST_ASSERT_TRUE(cfg.valid);
-  TEST_ASSERT_EQUAL(2, static_cast<int>(cfg.assignments.size()));
-  TEST_ASSERT_EQUAL_STRING("3", cfg.assignments[0].station_id.c_str());
-  TEST_ASSERT_EQUAL_STRING("7", cfg.assignments[1].station_id.c_str());
-}
-
-// ---- F9: station→task resolution ----
-void test_resolve_assignment_found() {
-  const std::string json = R"({
-    "assignments": [
-      {"station_id":"3","task_id":"fold","task_name":"Fold Towel","prompt":"Fold it",
-       "rotation_id":"A","task_version":2},
-      {"station_id":"5","task_id":"pour","task_name":"Pour Water","prompt":"Pour it"}
-    ]
-  })";
-  const auto cfg = parse_task_config(json);
-  const auto *sa = resolve_assignment(cfg, "5");
-  TEST_ASSERT_NOT_NULL(sa);
-  TEST_ASSERT_EQUAL_STRING("pour", sa->task_id.c_str());
-  TEST_ASSERT_EQUAL_STRING("Pour Water", sa->task_name.c_str());
-  TEST_ASSERT_EQUAL_STRING("Pour it", sa->prompt.c_str());
-}
-
-void test_resolve_assignment_not_found() {
-  const std::string json = R"({"assignments":[{"station_id":"3","task_id":"fold"}]})";
-  const auto cfg = parse_task_config(json);
-  TEST_ASSERT_NULL(resolve_assignment(cfg, "99"));
-}
-
-void test_resolve_assignment_invalid_config() {
-  TaskConfig cfg; // valid=false
-  TEST_ASSERT_NULL(resolve_assignment(cfg, "3"));
-}
-
-// ---- F9: operational record serialization ----
+// ---- operational record serialization ----
 void test_serialize_episode_started() {
   Assignment a;
   a.kit_id = "kit_07";
@@ -710,7 +622,7 @@ void test_serialize_episode_started() {
   a.station_id = "3";
   a.task_id = "fold";
   a.rotation_id = "A";
-  a.task_source = "boot_config";
+  a.task_source = "operator";
   a.session_id = "sess-1";
   TakeContext t;
   t.episode_id = "eid-abc";
@@ -726,7 +638,7 @@ void test_serialize_episode_started() {
   TEST_ASSERT_TRUE(line.find("\"stn\":\"3\"") != std::string::npos);
   TEST_ASSERT_TRUE(line.find("\"tid\":\"fold\"") != std::string::npos);
   TEST_ASSERT_TRUE(line.find("\"rv\":\"A\"") != std::string::npos);
-  TEST_ASSERT_TRUE(line.find("\"ts\":\"boot_config\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"ts\":\"operator\"") != std::string::npos);
   TEST_ASSERT_EQUAL('}', line.back());
 }
 
@@ -782,29 +694,17 @@ void test_serialize_station_assignment() {
   a.task_id = "fold";
   a.task_name = "Fold Towel";
   a.rotation_id = "A";
-  a.task_source = "boot_config";
+  a.task_source = "operator";
   const std::string line = serialize_station_assignment(a, 1719474060, "sess-abc");
   TEST_ASSERT_TRUE(line.find("\"T\":\"A\"") != std::string::npos);
   TEST_ASSERT_TRUE(line.find("\"stn\":\"3\"") != std::string::npos);
   TEST_ASSERT_TRUE(line.find("\"tid\":\"fold\"") != std::string::npos);
   TEST_ASSERT_TRUE(line.find("\"tn\":\"Fold Towel\"") != std::string::npos);
-  TEST_ASSERT_TRUE(line.find("\"ts\":\"boot_config\"") != std::string::npos);
+  TEST_ASSERT_TRUE(line.find("\"ts\":\"operator\"") != std::string::npos);
   TEST_ASSERT_EQUAL('}', line.back());
 }
 
-void test_serialize_call_lead() {
-  Assignment a;
-  a.kit_id = "kit_07";
-  a.operator_id = "101";
-  a.station_id = "3";
-  const std::string line = serialize_call_lead(a, 1719475500, "sess-abc");
-  TEST_ASSERT_TRUE(line.find("\"T\":\"S\"") != std::string::npos);
-  TEST_ASSERT_TRUE(line.find("\"st\":\"call\"") != std::string::npos);
-  TEST_ASSERT_TRUE(line.find("\"sid\":\"sess-abc\"") != std::string::npos);
-  TEST_ASSERT_EQUAL('}', line.back());
-}
-
-// F9: the durable log now emits episode_started + episode_stopped operational records alongside the
+// The durable log now emits episode_started + episode_stopped operational records alongside the
 // ordinal entry. Verify the full lifecycle produces the expected number and types of log lines.
 void test_operational_records_in_durable_log() {
   FakeClock clk;
@@ -822,7 +722,7 @@ void test_operational_records_in_durable_log() {
   a.operator_id = "101";
   a.station_id = "3";
   a.task_id = "fold";
-  a.task_source = "boot_config";
+  a.task_source = "operator";
   a.session_id = "sess-1";
   co.set_assignment(a);
   co.set_fob_session_id("sess1");
@@ -932,23 +832,13 @@ int main(int, char **) {
   RUN_TEST(test_detect_drop_l2_only);
   RUN_TEST(test_stop_finalize_recording_suspect);
   RUN_TEST(test_env_projections);
-  // F9: task-config parsing + resolution
-  RUN_TEST(test_parse_task_config);
-  RUN_TEST(test_parse_task_config_malformed);
-  RUN_TEST(test_parse_task_config_empty);
-  RUN_TEST(test_parse_task_config_missing_assignments);
-  RUN_TEST(test_parse_task_config_partial_assignment);
-  RUN_TEST(test_resolve_assignment_found);
-  RUN_TEST(test_resolve_assignment_not_found);
-  RUN_TEST(test_resolve_assignment_invalid_config);
-  // F9: operational record serialization
+  // Operational record serialization
   RUN_TEST(test_serialize_episode_started);
   RUN_TEST(test_serialize_episode_stopped);
   RUN_TEST(test_serialize_episode_discarded);
   RUN_TEST(test_serialize_session_signin);
   RUN_TEST(test_serialize_station_assignment);
-  RUN_TEST(test_serialize_call_lead);
-  // F9: operational records in coordinator lifecycle
+  // Operational records in coordinator lifecycle
   RUN_TEST(test_operational_records_in_durable_log);
   RUN_TEST(test_operational_records_not_emitted_on_rollback);
   RUN_TEST(test_log_budget_extended_records);
