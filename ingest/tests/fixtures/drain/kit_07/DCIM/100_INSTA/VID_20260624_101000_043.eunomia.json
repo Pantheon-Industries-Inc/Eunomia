@@ -1,0 +1,31 @@
+{
+  "schema": "eunomia-sidecar/v1",
+  "seq": 43,
+  "global_episode_seq": 1010,
+  "identity": {
+    "camera_id": "cam_A",
+    "kit_id": "kit_07",
+    "side": "left",
+    "operator_id": "op_123",
+    "station_id": "5",
+    "task_id": "t_wipe",
+    "task_name": "Wipe counter",
+    "session_id": "sess_xyz",
+    "episode_id": "660e8400-e29b-41d4-a716-446655440001",
+    "rotation_id": "r1",
+    "prompt": "wipe the counter clean",
+    "task_source": "nand_staged"
+  },
+  "timing": {
+    "started_unix": 1750001000.0,
+    "stopped_unix": 1750001090.0
+  },
+  "outcome": {
+    "stop_reason": "operator",
+    "archive": 0,
+    "recording_suspect": 1
+  },
+  "files": {
+    "back": "VID_20260624_101000_00_043.insv"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "schema": "eunomia-sidecar/v1",
+  "record_format_version": 3,
+  "seq": 42,
+  "global_episode_seq": 1009,
+  "identity": {
+    "camera_id": "cam_A",
+    "kit_id": "kit_07",
+    "side": "left",
+    "operator_id": "op_123",
+    "station_id": "5",
+    "task_id": "t_fold",
+    "task_name": "Fold the towel",
+    "session_id": "sess_xyz",
+    "episode_id": "550e8400-e29b-41d4-a716-446655440000",
+    "rotation_id": "r2",
+    "prompt": "fold the towel into the bin",
+    "task_source": "sd_assignment",
+    "episode_ordinal": 12,
+    "bimanual_episode_id": "bi_88",
+    "display_id": "20260624_op123_5_000012",
+    "record_settings": "3K100_fsoff_audioon",
+    "mount": "wrist_left",
+    "assignment_source": "fob"
+  },
+  "timing": {
+    "started_unix": 1750000000.5,
+    "stopped_unix": 1750000123.0,
+    "start_skew_ms": 12.0,
+    "camera_clock": "2026-06-24T10:00:00Z"
+  },
+  "provenance": {
+    "camera_firmware": "1.1.6",
+    "fob_id": "fob_3",
+    "fob_build": "3.8.3",
+    "kit_version": "discardd-2.0",
+    "site_id": "mx_1",
+    "modality": "umi"
+  },
+  "outcome": {
+    "stop_reason": "operator",
+    "archive": 0,
+    "recording_suspect": 0
+  },
+  "files": {
+    "back": "VID_20260624_100000_00_042.insv"
+  }
+}

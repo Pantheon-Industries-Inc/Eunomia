@@ -13,6 +13,7 @@ members = [
     "eunomia-consoles-provisioning",
     "eunomia-contracts",
     "eunomia-edge-store",
+    "eunomia-ingest",
 ]
 
 [[package]]
@@ -176,6 +177,21 @@ requires-dist = [
     { name = "eunomia-contracts", editable = "contracts" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1,<4.0" },
     { name = "sqlalchemy", specifier = ">=2.0,<3.0" },
+]
+
+[[package]]
+name = "eunomia-ingest"
+version = "0.0.0"
+source = { editable = "ingest" }
+dependencies = [
+    { name = "eunomia-contracts" },
+    { name = "eunomia-edge-store" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "eunomia-contracts", editable = "contracts" },
+    { name = "eunomia-edge-store", editable = "edge/store" },
 ]
 
 [[package]]

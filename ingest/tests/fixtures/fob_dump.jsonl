@@ -1,0 +1,12 @@
+{"T":"S","st":"signin","sid":"sess_xyz","k":"kit_07","op":"op_123","site":"mx_1","fob":"fob_3","fob_sid":"1a2b3c4d"}
+{"T":"O","o":1,"t":1750000000,"k":"kit_07","f":"fob_3","s":"1a2b3c4d","e":"550e8400-e29b-41d4-a716-446655440000"}
+{"T":"E","st":"start","o":1,"k":"kit_07","e":"550e8400-e29b-41d4-a716-446655440000","op":"op_123","stn":"5","tid":"t_fold","tn":"Fold the towel","rv":"r2","ts":"sd_assignment"}
+{"T":"E","st":"stop","e":"550e8400-e29b-41d4-a716-446655440000","o":1,"r":"operator","a":0,"rs":0}
+{"T":"O","o":2,"t":1750001000,"k":"kit_07","f":"fob_3","s":"1a2b3c4d","e":"660e8400-e29b-41d4-a716-446655440001"}
+{"T":"E","st":"start","o":2,"k":"kit_07","e":"660e8400-e29b-41d4-a716-446655440001","op":"op_123","stn":"5","tid":"t_wipe","tn":"Wipe counter","rv":"r1","ts":"boot_config"}
+{"T":"E","st":"stop","e":"660e8400-e29b-41d4-a716-446655440001","o":2,"r":"operator","a":0,"rs":1}
+{"T":"A","stn":"5","tid":"t_fold","tn":"Fold the towel","rv":"r2","ts":"sd_assignment","k":"kit_07"}
+{"T":"E","st":"discard","e":"770e8400-e29b-41d4-a716-446655440002","o":3}
+{"T":"S","st":"call","sid":"sess_xyz","k":"kit_07","op":"op_123","stn":"5"}
+{"T":"X","unknown":"field"}
+not valid json {{{
