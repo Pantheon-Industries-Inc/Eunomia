@@ -144,6 +144,17 @@ def test_build_sheet_text_format() -> None:
     assert "Máx 3 tareas diferentes por día." in text
 
 
+def test_api_create_task_with_metadata_no_db() -> None:
+    resp = client.post(
+        "/api/supervisor/tasks",
+        json={
+            "task_name": "test",
+            "metadata": {"props": ["towel"], "object_count": 1},
+        },
+    )
+    assert resp.status_code == 503
+
+
 def test_max_tasks_constant() -> None:
     from eunomia_consoles_provisioning.supervisor import MAX_TASKS_PER_OPERATOR
 

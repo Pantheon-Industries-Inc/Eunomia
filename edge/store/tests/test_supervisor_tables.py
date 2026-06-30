@@ -474,6 +474,63 @@ def test_build_sheet_text(conn: Connection) -> None:
     assert "Máx 3 tareas diferentes por día." in text
 
 
+def test_create_task_with_metadata(conn: Connection) -> None:
+    from eunomia_consoles_provisioning.supervisor import create_task, list_tasks
+
+    meta = {"props": ["towel", "basket"], "object_count": 2, "difficulty": "easy"}
+    t = create_task(
+        conn, task_name="Fold towels (meta)", category="laundry", metadata=meta
+    )
+    assert t["metadata"] == meta
+
+    tasks = list_tasks(conn)
+    found = next(x for x in tasks if x["task_id"] == t["task_id"])
+    assert found["metadata"] == meta
+
+
+def test_create_task_without_metadata(conn: Connection) -> None:
+    from eunomia_consoles_provisioning.supervisor import create_task, list_tasks
+
+    t = create_task(conn, task_name="No meta task")
+    assert t["metadata"] is None
+
+    tasks = list_tasks(conn)
+    found = next(x for x in tasks if x["task_id"] == t["task_id"])
+    assert found.get("metadata") is None
+
+
+def test_task_metadata_column_jsonb(conn: Connection) -> None:
+    """Verify metadata column stores and retrieves nested JSONB correctly."""
+    meta = {
+        "props": ["cup", "saucer"],
+        "scene_setup": "Place cup on saucer",
+        "reference_episodes": ["ep-001", "ep-002"],
+        "object_count": 2,
+    }
+    store.upsert(
+        conn,
+        "task",
+        {
+            "schema": "eunomia-task/v1",
+            "task_id": "meta-test-1",
+            "version": 1,
+            "rotation_id": "default",
+            "task_name": "JSONB test",
+            "metadata": meta,
+        },
+    )
+    table = schema.TABLES["task"]
+    row = (
+        conn.execute(table.select().where(table.c.task_id == "meta-test-1"))
+        .mappings()
+        .first()
+    )
+    assert row is not None
+    assert row["metadata"] == meta
+    assert isinstance(row["metadata"]["props"], list)
+    assert row["metadata"]["object_count"] == 2
+
+
 def test_permanent_id_non_reassignment(conn: Connection) -> None:
     """Decommissioned task ID is never reused — new task gets a higher ID."""
     from eunomia_consoles_provisioning.supervisor import (
