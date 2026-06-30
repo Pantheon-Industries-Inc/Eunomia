@@ -1,0 +1,12 @@
+[Unit]
+Description=Eunomia SYNC1 status generator (every 60s)
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=60
+AccuracySec=5s
+Persistent=true
+Unit=eunomia-sync-status.service
+
+[Install]
+WantedBy=timers.target

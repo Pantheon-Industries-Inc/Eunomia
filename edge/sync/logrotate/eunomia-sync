@@ -1,0 +1,13 @@
+# Eunomia SYNC1 log rotation.
+# Sync scripts append to /var/log/eunomia-sync/*.log via >> redirection.
+# copytruncate is required because the scripts hold an open fd on the log.
+/var/log/eunomia-sync/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su pluto pluto
+}
