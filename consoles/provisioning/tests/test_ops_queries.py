@@ -147,30 +147,30 @@ def _seed_episode(
     task_version: int = 1,
     rotation_id: str = "r1",
     recorded_at: datetime | None = None,
+    ingested_at: datetime | None = None,
     archive: int = 900,
     recording_suspect: int = 0,
     session_id: str = "sess_01",
 ) -> None:
-    upsert(
-        conn,
-        "episode",
-        {
-            "schema": "eunomia-episode/v1",
-            "episode_id": episode_id,
-            "global_episode_seq": 1,
-            "kit_id": kit_id,
-            "side": "left",
-            "person_id": person_id,
-            "task_id": task_id,
-            "task_version": task_version,
-            "rotation_id": rotation_id,
-            "station_id": "st_01",
-            "session_id": session_id,
-            "recorded_at": _iso(recorded_at or NOW - timedelta(hours=1)),
-            "archive": archive,
-            "recording_suspect": recording_suspect,
-        },
-    )
+    data: dict[str, object] = {
+        "schema": "eunomia-episode/v1",
+        "episode_id": episode_id,
+        "global_episode_seq": 1,
+        "kit_id": kit_id,
+        "side": "left",
+        "person_id": person_id,
+        "task_id": task_id,
+        "task_version": task_version,
+        "rotation_id": rotation_id,
+        "station_id": "st_01",
+        "session_id": session_id,
+        "recorded_at": _iso(recorded_at or NOW - timedelta(hours=1)),
+        "archive": archive,
+        "recording_suspect": recording_suspect,
+    }
+    if ingested_at is not None:
+        data["ingested_at"] = _iso(ingested_at)
+    upsert(conn, "episode", data)
 
 
 def _seed_anomaly(
@@ -491,6 +491,122 @@ def test_frames_to_seconds() -> None:
 
 def test_frames_to_hours() -> None:
     assert queries.frames_to_hours(30 * 3600) == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Pipeline health
+# ---------------------------------------------------------------------------
+
+
+def test_pipeline_health_empty(conn: Connection) -> None:
+    since = datetime(2020, 1, 1, tzinfo=UTC)
+    health = queries.pipeline_health(conn, since)
+    assert health["total_episodes"] == 0
+    assert health["ingested"] == 0
+    assert health["normalized"] == 0
+    assert health["qc_complete"] == 0
+    assert health["synced"] == 0
+
+
+def test_pipeline_health_funnel_counts(conn: Connection) -> None:
+    _seed_person(conn, "op_01", "Alice")
+    _seed_kit(conn, "kit_01")
+    _seed_task(conn, "t_01", "Wash")
+
+    # ep1: fully through normalize + QC
+    _seed_episode(
+        conn,
+        "ep_ph1",
+        recorded_at=NOW - timedelta(hours=3),
+        ingested_at=NOW - timedelta(hours=2),
+    )
+    append_event(
+        conn,
+        {
+            "schema": "eunomia-operational-event/v1",
+            "event_id": "evt_fn_ph1",
+            "event_type": "footage_normalized",
+            "entity": "episode",
+            "entity_id": "ep_ph1",
+            "as_of": _iso(NOW - timedelta(hours=1, minutes=30)),
+            "payload": {"normalized_path": "/tmp/test.mp4"},
+        },
+    )
+    append_event(
+        conn,
+        {
+            "schema": "eunomia-operational-event/v1",
+            "event_id": "evt_qv_ph1",
+            "event_type": "qa_verdict",
+            "entity": "episode",
+            "entity_id": "ep_ph1",
+            "as_of": _iso(NOW - timedelta(hours=1)),
+            "payload": {"verdict": "accept"},
+        },
+    )
+
+    # ep2: ingested only (not normalized)
+    _seed_episode(
+        conn,
+        "ep_ph2",
+        recorded_at=NOW - timedelta(hours=2),
+        ingested_at=NOW - timedelta(hours=1, minutes=30),
+    )
+
+    # ep3: recorded only (not ingested)
+    _seed_episode(conn, "ep_ph3", recorded_at=NOW - timedelta(hours=1))
+
+    since = datetime(2020, 1, 1, tzinfo=UTC)
+    health = queries.pipeline_health(conn, since)
+    assert health["total_episodes"] == 3
+    assert health["ingested"] == 2
+    assert health["normalized"] == 1
+    assert health["qc_complete"] == 1
+    assert health["synced"] == 0
+
+
+def test_pipeline_health_latency_values(conn: Connection) -> None:
+    _seed_person(conn, "op_01", "Alice")
+    _seed_kit(conn, "kit_01")
+    _seed_task(conn, "t_01", "Wash")
+
+    _seed_episode(
+        conn,
+        "ep_lat1",
+        recorded_at=NOW - timedelta(hours=2),
+        ingested_at=NOW - timedelta(hours=1),
+    )
+
+    since = datetime(2020, 1, 1, tzinfo=UTC)
+    health = queries.pipeline_health(conn, since)
+    assert health["median_drain_to_ingest_min"] is not None
+    assert health["median_drain_to_ingest_min"] > 0
+
+
+def test_pipeline_stalls(conn: Connection) -> None:
+    _seed_person(conn, "op_01", "Alice")
+    _seed_kit(conn, "kit_01")
+    _seed_task(conn, "t_01", "Wash")
+
+    # Episode with no ingested_at -> awaiting_ingest
+    _seed_episode(conn, "ep_ps1", recorded_at=NOW - timedelta(hours=1))
+    # Episode ingested but not normalized -> awaiting_normalize
+    _seed_episode(
+        conn,
+        "ep_ps2",
+        recorded_at=NOW - timedelta(hours=2),
+        ingested_at=NOW - timedelta(hours=1),
+    )
+
+    stalls = queries.pipeline_stalls(conn)
+    by_stage = {s["stage"]: s for s in stalls}
+    assert by_stage["awaiting_ingest"]["count"] >= 1
+    assert by_stage["awaiting_normalize"]["count"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def test_format_duration() -> None:

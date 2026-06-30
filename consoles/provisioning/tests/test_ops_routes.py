@@ -60,6 +60,17 @@ def test_ops_partial_anomaly_count_no_db() -> None:
     assert resp.status_code == 200
 
 
+def test_ops_pipeline_no_db() -> None:
+    resp = client.get("/ops/pipeline")
+    assert resp.status_code == 200
+    assert "Store unavailable" in resp.text
+
+
+def test_ops_pipeline_with_range_param() -> None:
+    resp = client.get("/ops/pipeline?range=today")
+    assert resp.status_code == 200
+
+
 def test_existing_routes_still_work() -> None:
     resp = client.get("/api/health")
     assert resp.status_code == 200

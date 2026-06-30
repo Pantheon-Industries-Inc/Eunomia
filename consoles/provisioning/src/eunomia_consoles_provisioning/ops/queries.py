@@ -544,6 +544,106 @@ def task_versions(conn: Connection, task_id: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Pipeline health
+# ---------------------------------------------------------------------------
+
+_PIPELINE_HEALTH_SQL = sa.text("""\
+WITH ep_events AS (
+  SELECT
+    e.episode_id,
+    e.recorded_at,
+    e.ingested_at,
+    (SELECT oe.as_of FROM operational_event oe
+     WHERE oe.entity_id = e.episode_id AND oe.event_type = 'footage_normalized'
+     LIMIT 1) AS normalized_at,
+    (SELECT oe.as_of FROM operational_event oe
+     WHERE oe.entity_id = e.episode_id AND oe.event_type = 'qa_verdict'
+     LIMIT 1) AS qa_verdict_at,
+    (SELECT oe.as_of FROM operational_event oe
+     WHERE oe.entity_id = e.episode_id AND oe.event_type = 'sync_state_transition'
+     AND oe.payload->>'new_state' = 'on_hades'
+     LIMIT 1) AS synced_at
+  FROM episode e
+  WHERE e.recorded_at >= :since AND e.void IS NOT TRUE
+)
+SELECT
+  percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (ingested_at - recorded_at))/60.0)
+    AS median_drain_to_ingest_min,
+  percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (normalized_at - ingested_at))/60.0)
+    AS median_ingest_to_normalize_min,
+  percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (qa_verdict_at - normalized_at))/60.0)
+    AS median_normalize_to_qc_min,
+  percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (synced_at - qa_verdict_at))/60.0)
+    AS median_qc_to_sync_min,
+  percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (qa_verdict_at - recorded_at))/60.0)
+    AS median_recording_to_verdict_min,
+  percentile_cont(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (qa_verdict_at - recorded_at))/60.0)
+    AS p95_recording_to_verdict_min,
+  COUNT(*) AS total_episodes,
+  COUNT(ingested_at) AS ingested,
+  COUNT(normalized_at) AS normalized,
+  COUNT(qa_verdict_at) AS qc_complete,
+  COUNT(synced_at) AS synced
+FROM ep_events
+""")
+
+_PIPELINE_STALLS_SQL = sa.text("""\
+WITH ep_state AS (
+  SELECT
+    e.episode_id,
+    e.recorded_at,
+    e.ingested_at,
+    EXISTS (SELECT 1 FROM operational_event oe
+            WHERE oe.entity_id = e.episode_id
+              AND oe.event_type = 'footage_normalized') AS has_normalized,
+    EXISTS (SELECT 1 FROM operational_event oe
+            WHERE oe.entity_id = e.episode_id
+              AND oe.event_type = 'qa_verdict') AS has_qc,
+    EXISTS (SELECT 1 FROM operational_event oe
+            WHERE oe.entity_id = e.episode_id
+              AND oe.event_type = 'sync_state_transition'
+              AND oe.payload->>'new_state' = 'on_hades') AS has_synced
+  FROM episode e
+  WHERE e.void IS NOT TRUE
+)
+SELECT 'awaiting_ingest' AS stage, COUNT(*) AS count, MIN(recorded_at) AS oldest
+  FROM ep_state WHERE ingested_at IS NULL
+UNION ALL
+SELECT 'awaiting_normalize', COUNT(*), MIN(ingested_at)
+  FROM ep_state WHERE ingested_at IS NOT NULL AND NOT has_normalized
+UNION ALL
+SELECT 'awaiting_qc', COUNT(*), MIN(ingested_at)
+  FROM ep_state WHERE has_normalized AND NOT has_qc
+UNION ALL
+SELECT 'awaiting_sync', COUNT(*), MIN(ingested_at)
+  FROM ep_state WHERE has_qc AND NOT has_synced
+""")
+
+
+def pipeline_health(conn: Connection, since: datetime) -> dict[str, Any]:
+    """Per-step latency stats and funnel counts for episodes recorded since *since*."""
+    row = conn.execute(_PIPELINE_HEALTH_SQL, {"since": since}).mappings().one()
+    out: dict[str, Any] = {}
+    for k, v in dict(row).items():
+        if k.endswith("_min"):
+            out[k] = round(float(v), 1) if v is not None else None
+        else:
+            out[k] = int(v) if v is not None else 0
+    return out
+
+
+def pipeline_stalls(conn: Connection) -> list[dict[str, Any]]:
+    """Episodes stuck at each pipeline stage — counts and oldest timestamp."""
+    rows = conn.execute(_PIPELINE_STALLS_SQL).mappings().all()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Anomalies
+# ---------------------------------------------------------------------------
+
+
 ANOMALY_TYPES = (
     "recording_suspect",
     "sidecar_without_footage",
