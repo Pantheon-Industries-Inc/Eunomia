@@ -1,0 +1,48 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — Inspect Tasks{% endblock %}
+{% block sub_inspect %}active{% endblock %}
+{% block content %}
+<h1>Inspect: Task Catalog</h1>
+
+<div class="sub-nav">
+    <a href="/ops/inspect/episodes">Episodes</a>
+    <a href="/ops/inspect/events">Events</a>
+    <a href="/ops/inspect/sessions">Sessions</a>
+    <a href="/ops/inspect/tasks" class="active">Tasks</a>
+</div>
+
+<div id="results">
+{% if tasks %}
+<div class="card">
+    {% for t in tasks %}
+    <div style="margin-bottom:1rem;padding-bottom:0.75rem;{% if not loop.last %}border-bottom:1px solid #dee2e6{% endif %}">
+        <div style="margin-bottom:0.25rem">
+            <strong>{{ t.task_name or t.task_id }}</strong>
+            <span class="text-muted" style="font-size:0.8rem;margin-left:0.5rem">v{{ t.version }} / {{ t.rotation_id }}</span>
+        </div>
+        <div style="font-size:0.8rem;margin-bottom:0.25rem">
+            <strong>ID:</strong> {{ t.task_id }}
+            {% if t.category %}&nbsp;|&nbsp; <strong>Category:</strong> {{ t.category }}{% endif %}
+            {% if t.family %}&nbsp;|&nbsp; <strong>Family:</strong> {{ t.family }}{% endif %}
+        </div>
+        {% if t.metadata %}
+        <details>
+            <summary style="font-size:0.8rem;cursor:pointer;color:#0d6efd">Metadata</summary>
+            <pre style="font-size:0.75rem;overflow-x:auto;background:#f8f9fa;padding:0.5rem;border-radius:4px;margin:0.25rem 0 0">{{ t.metadata | to_pretty_json }}</pre>
+        </details>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+
+{% if has_more %}
+<div style="text-align:center;margin:1rem 0">
+    <a href="/ops/inspect/tasks?offset={{ offset + limit }}" class="btn-primary" style="display:inline-block;text-decoration:none;color:#fff">Load more</a>
+</div>
+{% endif %}
+
+{% else %}
+<p class="empty">No tasks found.</p>
+{% endif %}
+</div>
+{% endblock %}

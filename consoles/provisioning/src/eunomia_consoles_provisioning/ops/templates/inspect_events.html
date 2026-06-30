@@ -1,0 +1,56 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — Inspect Events{% endblock %}
+{% block sub_inspect %}active{% endblock %}
+{% block content %}
+<h1>Inspect: Operational Events</h1>
+
+<div class="sub-nav">
+    <a href="/ops/inspect/episodes">Episodes</a>
+    <a href="/ops/inspect/events" class="active">Events</a>
+    <a href="/ops/inspect/sessions">Sessions</a>
+    <a href="/ops/inspect/tasks">Tasks</a>
+</div>
+
+<form class="filters" hx-get="/ops/inspect/events" hx-target="#results" hx-push-url="true">
+    <div class="field">
+        <label for="event_type">Event Type</label>
+        <select name="event_type" id="event_type">
+            <option value="">All types</option>
+            {% for t in event_types %}
+            <option value="{{ t }}" {% if selected_type == t %}selected{% endif %}>{{ t }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <button type="submit" class="btn-primary">Filter</button>
+</form>
+
+<div id="results">
+{% if events %}
+<div class="card">
+    {% for ev in events %}
+    <div style="margin-bottom:1rem;padding-bottom:0.75rem;{% if not loop.last %}border-bottom:1px solid #dee2e6{% endif %}">
+        <div style="margin-bottom:0.25rem">
+            <span class="badge badge-ok">{{ ev.event_type }}</span>
+            <span class="text-muted" style="font-size:0.8rem;margin-left:0.5rem">{{ ev.as_of.strftime('%Y-%m-%d %H:%M:%S') if ev.as_of else '—' }}</span>
+        </div>
+        <div style="font-size:0.8rem;margin-bottom:0.25rem">
+            <strong>Entity:</strong> {{ ev.entity }}:{{ ev.entity_id }}
+            &nbsp;|&nbsp; <strong>ID:</strong> <span class="text-muted">{{ ev.event_id }}</span>
+            {% if ev.related_kit_id %}&nbsp;|&nbsp; <strong>Kit:</strong> {{ ev.related_kit_id }}{% endif %}
+        </div>
+        <pre style="font-size:0.75rem;overflow-x:auto;background:#f8f9fa;padding:0.5rem;border-radius:4px;margin:0;max-height:150px">{{ ev.payload | to_pretty_json if ev.payload else '{}' }}</pre>
+    </div>
+    {% endfor %}
+</div>
+
+{% if has_more %}
+<div style="text-align:center;margin:1rem 0">
+    <a href="/ops/inspect/events?offset={{ offset + limit }}{% if selected_type %}&event_type={{ selected_type }}{% endif %}" class="btn-primary" style="display:inline-block;text-decoration:none;color:#fff">Load more</a>
+</div>
+{% endif %}
+
+{% else %}
+<p class="empty">No events{% if selected_type %} of type "{{ selected_type }}"{% endif %}.</p>
+{% endif %}
+</div>
+{% endblock %}

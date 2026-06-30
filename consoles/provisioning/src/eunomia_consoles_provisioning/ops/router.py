@@ -11,11 +11,16 @@ from fastapi.templating import Jinja2Templates
 
 from eunomia_consoles_provisioning.ops import queries
 from eunomia_consoles_provisioning.ops.db import get_conn
+from eunomia_consoles_provisioning.ops.import_router import import_router
+from eunomia_consoles_provisioning.ops.inspect_router import inspect_router
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 ops_router = APIRouter(prefix="/ops", tags=["ops"])
 ops_templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+ops_router.include_router(inspect_router)
+ops_router.include_router(import_router)
 
 
 def _ctx(request: Request, **kwargs: Any) -> dict[str, Any]:

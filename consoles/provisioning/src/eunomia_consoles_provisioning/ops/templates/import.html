@@ -1,0 +1,79 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — Import{% endblock %}
+{% block sub_import %}active{% endblock %}
+{% block content %}
+<h1>Import &amp; QC</h1>
+
+<style>
+    .import-section { margin-bottom: 2rem; }
+    .import-section h2 { font-size: 1.1rem; margin-bottom: 0.75rem; }
+    .import-form { display: flex; gap: 0.75rem; align-items: end; flex-wrap: wrap; }
+    .import-form .field { display: flex; flex-direction: column; }
+    .import-form input[type="text"], .import-form input[type="date"] {
+        padding: 0.4rem; border: 1px solid #ced4da; border-radius: 4px; font-size: 0.85rem;
+    }
+    .import-form input[type="text"] { width: 350px; }
+    .htmx-indicator { display: none; color: #6c757d; font-size: 0.85rem; }
+    .htmx-request .htmx-indicator { display: inline; }
+    .htmx-request button { opacity: 0.6; pointer-events: none; }
+</style>
+
+<div class="import-section">
+    <div class="card">
+        <h2>Scan Drain</h2>
+        <p class="text-muted" style="font-size:0.85rem;margin-bottom:0.75rem">
+            Scan a drain output directory and ingest sidecars + footage references into S1.
+        </p>
+        <form class="import-form" hx-post="/ops/import/scan-drain" hx-target="#drain-result" hx-indicator="#drain-form">
+            <div class="field" id="drain-form">
+                <label for="drain-path">Drain directory</label>
+                <input type="text" name="path" id="drain-path" value="{{ default_drain_dir }}" placeholder="/path/to/drain/output" required>
+            </div>
+            <button type="submit" class="btn-primary">Run Ingest</button>
+            <span class="htmx-indicator">Running...</span>
+        </form>
+        <div id="drain-result" style="margin-top:0.75rem"></div>
+    </div>
+</div>
+
+<div class="import-section">
+    <div class="card">
+        <h2>Import Fob Log</h2>
+        <p class="text-muted" style="font-size:0.85rem;margin-bottom:0.75rem">
+            Parse a fob JSONL log file and write events, sessions, and episode enrichments to S1.
+        </p>
+        <form class="import-form" hx-post="/ops/import/fob-log" hx-target="#fob-result" hx-indicator="#fob-form">
+            <div class="field" id="fob-form">
+                <label for="fob-path">JSONL file</label>
+                <input type="text" name="path" id="fob-path" placeholder="/path/to/fob_log.jsonl" required>
+            </div>
+            <button type="submit" class="btn-primary">Import</button>
+            <span class="htmx-indicator">Running...</span>
+        </form>
+        <div id="fob-result" style="margin-top:0.75rem"></div>
+    </div>
+</div>
+
+<div class="import-section">
+    <div class="card">
+        <h2>Run QC</h2>
+        <p class="text-muted" style="font-size:0.85rem;margin-bottom:0.75rem">
+            Run rubric-based QC checks on all episodes for a date. Requires <code>OPENROUTER_API_KEY</code>.
+            Can take 60-90s per episode.
+        </p>
+        <form class="import-form" hx-post="/ops/import/qc-run" hx-target="#qc-result" hx-indicator="#qc-form" hx-request='{"timeout": 300000}'>
+            <div class="field" id="qc-form">
+                <label for="qc-date">Date</label>
+                <input type="date" name="date" id="qc-date" required>
+            </div>
+            <button type="submit" class="btn-primary">Run QC Checks</button>
+            <span class="htmx-indicator">Running... (this may take several minutes)</span>
+        </form>
+        <div id="qc-result" style="margin-top:0.75rem"></div>
+    </div>
+</div>
+
+<script>
+    document.getElementById('qc-date').valueAsDate = new Date();
+</script>
+{% endblock %}
