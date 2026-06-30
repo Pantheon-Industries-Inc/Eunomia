@@ -36,6 +36,13 @@
         "null"
       ]
     },
+    "family": {
+      "description": "Task family within a category (e.g. \"lift_blocks\" under \"direct_manipulation\"). Optional grouping for parametric task variants.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "prompt": {
       "description": "Task prompt (versioned; resolved as-of recording).",
       "type": "string"

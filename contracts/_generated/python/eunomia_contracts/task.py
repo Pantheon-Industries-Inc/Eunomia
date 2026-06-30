@@ -17,6 +17,7 @@ class Task:
     rotation_id: str = ""
     station_id: str = ""
     category: str | None = None
+    family: str | None = None
     bimanual: bool = False
     expected_duration_s: float | None = None
     effective_from: str | None = None
@@ -37,6 +38,7 @@ _TABLES = _semantics.Tables(
         ("rotation_id", "string"),
         ("station_id", "string"),
         ("category", "string"),
+        ("family", "string"),
         ("bimanual", "bool"),
         ("expected_duration_s", "number"),
         ("effective_from", "string"),
@@ -50,6 +52,7 @@ _TABLES = _semantics.Tables(
     ],
     nullable=[
         "category",
+        "family",
         "expected_duration_s",
         "effective_from",
         "effective_to",

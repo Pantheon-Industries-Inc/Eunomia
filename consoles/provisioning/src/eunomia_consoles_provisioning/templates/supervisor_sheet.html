@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Assignment Sheet — {{ name }}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, -apple-system, sans-serif; padding: 2rem; max-width: 600px; margin: 0 auto; color: #212529; }
+        h1 { font-size: 1.3rem; margin-bottom: 0.25rem; text-align: center; text-transform: uppercase; letter-spacing: 0.05em; }
+        .subtitle { text-align: center; color: #495057; margin-bottom: 1.5rem; }
+        .info { margin-bottom: 1rem; font-size: 1rem; }
+        .info strong { font-weight: 600; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+        th, td { text-align: left; padding: 0.6rem 0.75rem; border: 1px solid #dee2e6; font-size: 1rem; }
+        th { background: #f8f9fa; font-weight: 600; }
+        td:first-child { width: 60px; text-align: center; font-weight: 600; font-size: 1.1rem; }
+        .footer { color: #6c757d; font-size: 0.9rem; margin-top: 1rem; }
+        .no-print { margin-bottom: 1.5rem; text-align: center; }
+        .no-print button { padding: 0.5rem 1.25rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; font-weight: 500; background: #212529; color: #fff; }
+        @media print {
+            .no-print { display: none; }
+            body { padding: 1rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print">
+        <button onclick="window.print()">Print / Save as PDF</button>
+    </div>
+
+    <h1>Eunomia &mdash; Weekly Task Assignment</h1>
+    <p class="subtitle">Assignment Sheet</p>
+
+    <p class="info"><strong>Operator:</strong> {{ name }} (ID {{ person_id }})</p>
+    <p class="info"><strong>Week of:</strong> {{ week_of_display }}</p>
+
+    <table>
+        <thead>
+            <tr><th>ID</th><th>Task</th></tr>
+        </thead>
+        <tbody>
+            {% for a in assignments %}
+            <tr>
+                <td>{{ a.task_id }}</td>
+                <td>{{ a.task_name }}</td>
+            </tr>
+            {% endfor %}
+            {% if not assignments %}
+            <tr><td colspan="2" style="color:#6c757d; text-align:center;">No tasks assigned.</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+
+    <p class="footer">Max 3 different tasks per day.<br>Type the Task ID on the fob.</p>
+</body>
+</html>

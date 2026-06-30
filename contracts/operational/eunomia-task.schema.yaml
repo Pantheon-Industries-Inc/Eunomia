@@ -63,6 +63,11 @@ fields:
     required: warn
     nullable: true
     description: Task category (open string; structured attribute).
+  - name: family
+    type: string
+    required: warn
+    nullable: true
+    description: Task family within a category (e.g. "lift_blocks" under "direct_manipulation"). Optional grouping for parametric task variants.
   - name: bimanual
     type: bool
     required: warn

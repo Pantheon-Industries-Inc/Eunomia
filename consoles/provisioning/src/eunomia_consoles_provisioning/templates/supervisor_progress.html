@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Provisioning Console — Collection Progress{% endblock %}
+{% block content %}
+<h1>Collection Progress</h1>
+
+{% if not store_available %}
+<div class="status-fail" style="margin-bottom:1rem;">Store not configured — set EUNOMIA_STORE_DSN to enable supervisor features.</div>
+{% else %}
+
+<div class="card" style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+    <label for="period-select" style="margin:0; white-space:nowrap;">Period:</label>
+    <input type="text" id="period-select" placeholder="2026-Q3" style="max-width:150px;">
+    <button class="btn-primary" onclick="loadProgress()">Load</button>
+    <span style="flex:1;"></span>
+    <button class="btn-primary" style="background:#495057;" onclick="document.getElementById('target-form').style.display = document.getElementById('target-form').style.display === 'none' ? 'block' : 'none'">Set Target</button>
+</div>
+
+<div class="card" id="target-form" style="display:none;">
+    <h2>Set Collection Target</h2>
+    <div class="grid-2">
+        <div>
+            <label for="target-task-id">Task ID</label>
+            <input type="text" id="target-task-id" placeholder="1">
+        </div>
+        <div>
+            <label for="target-hours">Target Hours</label>
+            <input type="number" id="target-hours" placeholder="100" step="0.5">
+        </div>
+    </div>
+    <div class="grid-2">
+        <div>
+            <label for="target-period">Period</label>
+            <input type="text" id="target-period" placeholder="2026-Q3">
+        </div>
+        <div>
+            <label for="target-by">Created By</label>
+            <input type="text" id="target-by" placeholder="supervisor" value="supervisor">
+        </div>
+    </div>
+    <button class="btn-primary" onclick="setTarget()">Save Target</button>
+    <div id="target-result" style="margin-top:0.5rem;"></div>
+</div>
+
+<div class="card">
+    <div id="progress-table">
+        <p>Loading...</p>
+    </div>
+</div>
+
+<script>
+function loadProgress() {
+    const period = document.getElementById('period-select').value;
+    const qs = period ? '?period=' + encodeURIComponent(period) : '';
+    fetch('/api/supervisor/progress' + qs)
+        .then(r => r.json())
+        .then(renderProgress)
+        .catch(() => { document.getElementById('progress-table').innerHTML = '<div class="status-fail">Error</div>'; });
+}
+
+function renderProgress(data) {
+    if (!data.length) {
+        document.getElementById('progress-table').innerHTML = '<p>No tasks found.</p>';
+        return;
+    }
+    let html = '<table><thead><tr><th>Task</th><th>Category</th><th>Family</th><th>Target</th><th>Collected</th><th>Episodes</th><th>Progress</th><th>Operators</th></tr></thead><tbody>';
+    data.forEach(function(p) {
+        const pct = p.pct || 0;
+        const barColor = pct >= 100 ? '#198754' : pct >= 50 ? '#fd7e14' : '#dc3545';
+        const barWidth = Math.min(pct, 100);
+        html += '<tr>';
+        html += '<td><strong>' + p.task_id + '</strong> ' + (p.task_name || '') + '</td>';
+        html += '<td>' + (p.category || '') + '</td>';
+        html += '<td>' + (p.family || '') + '</td>';
+        html += '<td>' + (p.target_hours || 0) + 'h</td>';
+        html += '<td>' + (p.collected_hours || 0) + 'h</td>';
+        html += '<td>' + (p.episode_count || 0) + '</td>';
+        html += '<td style="min-width:120px;">';
+        html += '<div style="background:#e9ecef;border-radius:4px;height:18px;position:relative;">';
+        html += '<div style="background:' + barColor + ';height:100%;border-radius:4px;width:' + barWidth + '%;"></div>';
+        html += '<span style="position:absolute;right:4px;top:0;font-size:0.75rem;line-height:18px;">' + pct + '%</span>';
+        html += '</div></td>';
+        html += '<td>' + (p.operators || []).join(', ') + '</td>';
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('progress-table').innerHTML = html;
+}
+
+function setTarget() {
+    const body = {
+        task_id: document.getElementById('target-task-id').value,
+        target_hours: parseFloat(document.getElementById('target-hours').value),
+        period: document.getElementById('target-period').value,
+        created_by: document.getElementById('target-by').value
+    };
+    fetch('/api/supervisor/targets', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+    }).then(r => {
+        if (r.ok) {
+            document.getElementById('target-result').innerHTML = '<span class="pass">Saved</span>';
+            loadProgress();
+        } else {
+            r.json().then(j => { document.getElementById('target-result').innerHTML = '<span class="fail">' + (j.detail || 'Error') + '</span>'; });
+        }
+    });
+}
+
+loadProgress();
+</script>
+
+{% endif %}
+{% endblock %}
