@@ -1,0 +1,37 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — Operators{% endblock %}
+{% block sub_operators %}active{% endblock %}
+{% block content %}
+<h1>Operators</h1>
+
+{% if operators %}
+<div class="card table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Today</th>
+                <th>Week</th>
+                <th>Month</th>
+                <th>Suspect %</th>
+                <th>Last Active</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for op in operators %}
+            <tr>
+                <td><a href="/ops/operators/{{ op.person_id }}">{{ op.name or op.person_id }}</a></td>
+                <td>{{ op.today }}</td>
+                <td>{{ op.week }}</td>
+                <td>{{ op.month }}</td>
+                <td>{% if op.suspect_pct > 5 %}<span class="warn">{{ op.suspect_pct }}%</span>{% else %}{{ op.suspect_pct }}%{% endif %}</td>
+                <td>{{ op.last_active.strftime('%b %d %H:%M') if op.last_active else '—' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="empty">No operators found.</p>
+{% endif %}
+{% endblock %}

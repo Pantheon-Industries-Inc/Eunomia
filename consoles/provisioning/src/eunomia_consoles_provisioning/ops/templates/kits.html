@@ -1,0 +1,35 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — Kits{% endblock %}
+{% block sub_kits %}active{% endblock %}
+{% block content %}
+<h1>Kits</h1>
+
+{% if kits %}
+<div class="card table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Kit</th>
+                <th>Operator</th>
+                <th>Episodes</th>
+                <th>Suspect</th>
+                <th>Last Drain</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for k in kits %}
+            <tr>
+                <td><a href="/ops/kits/{{ k.kit_id }}">{{ k.kit_id }}</a></td>
+                <td>{{ k.current_operator or '—' }}</td>
+                <td>{{ k.episode_count }}</td>
+                <td>{% if k.suspect_count %}<span class="warn">{{ k.suspect_count }}</span>{% else %}0{% endif %}</td>
+                <td>{{ k.last_drain.strftime('%b %d') if k.last_drain else '—' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="empty">No kits found.</p>
+{% endif %}
+{% endblock %}

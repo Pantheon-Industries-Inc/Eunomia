@@ -1,0 +1,11 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — Unavailable{% endblock %}
+{% block content %}
+<div class="card">
+    <h2>Store unavailable</h2>
+    <p class="text-muted" style="margin-top: 0.5rem;">
+        The ops dashboard requires a connection to the S1 store.
+        Set <code>EUNOMIA_STORE_DSN</code> and restart the service.
+    </p>
+</div>
+{% endblock %}

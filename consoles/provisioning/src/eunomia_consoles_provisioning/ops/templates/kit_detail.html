@@ -1,0 +1,53 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — {{ kit.kit_id }}{% endblock %}
+{% block sub_kits %}active{% endblock %}
+{% block content %}
+<a href="/ops/kits" class="back-link">&larr; Back to Kits</a>
+
+<h1>Kit {{ kit.kit_id }}</h1>
+<p class="text-muted">
+    Left cam: {{ kit.left_camera_id or '—' }} &middot;
+    Right cam: {{ kit.right_camera_id or '—' }} &middot;
+    Fob: {{ kit.fob_id or '—' }}
+</p>
+<p style="margin-top: 0.5rem;">Current operator: <strong>{{ current_operator or '—' }}</strong></p>
+
+<div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 1rem;">
+    <div class="stat-card">
+        <div class="value">{{ stats.episode_count }}</div>
+        <div class="label">Episodes</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{% if stats.suspect_count %}<span class="warn">{{ stats.suspect_count }}</span>{% else %}0{% endif %}</div>
+        <div class="label">Suspect</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ stats.last_drain.strftime('%b %d') if stats.last_drain else '—' }}</div>
+        <div class="label">Last Drain</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Kit Anomalies</h2>
+    {% if anomalies %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr><th>Time</th><th>Type</th><th>Detail</th></tr>
+            </thead>
+            <tbody>
+                {% for a in anomalies %}
+                <tr>
+                    <td>{{ a.as_of.strftime('%b %d %H:%M') if a.as_of else '—' }}</td>
+                    <td><span class="badge badge-warn">{{ a.anomaly_type }}</span></td>
+                    <td style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ a.detail }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="empty">No anomalies for this kit.</p>
+    {% endif %}
+</div>
+{% endblock %}

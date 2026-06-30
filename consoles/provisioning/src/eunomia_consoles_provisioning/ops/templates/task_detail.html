@@ -1,0 +1,73 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — {{ task.task_name or task.task_id }}{% endblock %}
+{% block sub_tasks %}active{% endblock %}
+{% block content %}
+<a href="/ops/tasks" class="back-link">&larr; Back to Tasks</a>
+
+<h1>{{ task.task_name or task.task_id }}</h1>
+
+<div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 1rem;">
+    <div class="stat-card">
+        <div class="value">{{ task.hours }}</div>
+        <div class="label">Hours</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ task.episode_count }}</div>
+        <div class="label">Episodes</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ task.avg_duration }}</div>
+        <div class="label">Avg Duration</div>
+    </div>
+</div>
+
+<p class="text-muted" style="margin-bottom: 1rem;">Target: not set (P3)</p>
+
+<div class="card">
+    <h2>Operators on this Task</h2>
+    {% if operators %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr><th>Operator</th><th>Episodes</th><th>Hours</th><th>Quality</th></tr>
+            </thead>
+            <tbody>
+                {% for op in operators %}
+                <tr>
+                    <td><a href="/ops/operators/{{ op.person_id }}">{{ op.name or op.person_id }}</a></td>
+                    <td>{{ op.episodes }}</td>
+                    <td>{{ op.hours }}</td>
+                    <td>{{ op.quality_pct }}%</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="empty">No operators have recorded this task yet.</p>
+    {% endif %}
+</div>
+
+{% if versions and versions|length > 1 %}
+<div class="card">
+    <h2>Task Versions</h2>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr><th>Version</th><th>Rotation</th><th>Station</th><th>Prompt</th></tr>
+            </thead>
+            <tbody>
+                {% for v in versions %}
+                <tr>
+                    <td>{{ v.version }}</td>
+                    <td>{{ v.rotation_id or '—' }}</td>
+                    <td>{{ v.station_id or '—' }}</td>
+                    <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ v.prompt or '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
