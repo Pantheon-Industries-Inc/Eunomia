@@ -1,0 +1,59 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — Anomalies{% endblock %}
+{% block sub_anomalies %}active{% endblock %}
+{% block content %}
+<h1>Anomaly Feed</h1>
+
+<form class="filters" method="get" action="/ops/anomalies">
+    <div class="field">
+        <label for="anomaly_type">Type</label>
+        <select name="anomaly_type" id="anomaly_type">
+            <option value="">All types</option>
+            {% for t in anomaly_types %}
+            <option value="{{ t }}" {% if selected_type == t %}selected{% endif %}>{{ t }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="field">
+        <label for="kit_id">Kit</label>
+        <input type="text" name="kit_id" id="kit_id" value="{{ selected_kit }}" placeholder="e.g. kit_001" style="width: 120px; padding: 0.4rem; border: 1px solid #ced4da; border-radius: 4px; font-size: 0.85rem;">
+    </div>
+    <button type="submit" class="btn-primary">Filter</button>
+</form>
+
+{% if anomalies %}
+<div class="card table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Type</th>
+                <th>Episode</th>
+                <th>Kit</th>
+                <th>Detail</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in anomalies %}
+            <tr>
+                <td>{{ a.as_of.strftime('%b %d %H:%M') if a.as_of else '—' }}</td>
+                <td><span class="badge badge-warn">{{ a.anomaly_type }}</span></td>
+                <td>{{ a.entity_id if a.entity_id != 'unknown' else '—' }}</td>
+                <td>{% if a.kit_id %}<a href="/ops/kits/{{ a.kit_id }}">{{ a.kit_id }}</a>{% else %}—{% endif %}</td>
+                <td style="max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ a.detail }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if has_more %}
+<div style="text-align: center; margin: 1rem 0;">
+    <a href="/ops/anomalies?offset={{ offset + limit }}{% if selected_type %}&anomaly_type={{ selected_type }}{% endif %}{% if selected_kit %}&kit_id={{ selected_kit }}{% endif %}" class="btn-primary" style="display: inline-block; text-decoration: none; color: #fff;">Load more</a>
+</div>
+{% endif %}
+
+{% else %}
+<p class="empty">No anomalies{% if selected_type %} of type "{{ selected_type }}"{% endif %}{% if selected_kit %} for kit "{{ selected_kit }}"{% endif %}.</p>
+{% endif %}
+{% endblock %}

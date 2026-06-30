@@ -1,0 +1,29 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — Overview{% endblock %}
+{% block sub_overview %}active{% endblock %}
+{% block content %}
+<h1>Collection Overview</h1>
+
+<div id="stats-area" hx-get="/ops/partials/overview-stats" hx-trigger="every 30s" hx-swap="innerHTML">
+    {% include "partials/overview_stats.html" %}
+</div>
+
+<div class="card" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+    <div>
+        <span id="anomaly-badge" hx-get="/ops/partials/anomaly-count" hx-trigger="every 30s" hx-swap="innerHTML">
+            {% include "partials/anomaly_count.html" %}
+        </span>
+    </div>
+    <a href="/ops/anomalies">View all anomalies</a>
+</div>
+
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <h2 style="margin: 0;">Recent Episodes</h2>
+        <span class="text-muted" style="font-size: 0.75rem;">auto-refresh 15s</span>
+    </div>
+    <div class="table-wrap" id="recent-episodes" hx-get="/ops/partials/recent-episodes" hx-trigger="every 15s" hx-swap="innerHTML">
+        {% include "partials/recent_episodes.html" %}
+    </div>
+</div>
+{% endblock %}

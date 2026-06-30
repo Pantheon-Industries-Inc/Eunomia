@@ -12,11 +12,14 @@ from pydantic import BaseModel
 
 from eunomia_consoles_provisioning import ship_gate, site
 from eunomia_consoles_provisioning.fob import parse_status
+from eunomia_consoles_provisioning.ops.router import ops_router
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 app = FastAPI(title="Eunomia Provisioning Console", version="0.0.0")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+app.include_router(ops_router)
 
 
 # ---------------------------------------------------------------------------

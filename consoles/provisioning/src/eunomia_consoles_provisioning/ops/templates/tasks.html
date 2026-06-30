@@ -1,0 +1,35 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — Tasks{% endblock %}
+{% block sub_tasks %}active{% endblock %}
+{% block content %}
+<h1>Tasks</h1>
+
+{% if tasks %}
+<div class="card table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Task</th>
+                <th>Hours</th>
+                <th>Episodes</th>
+                <th>Avg Duration</th>
+                <th>Operators</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in tasks %}
+            <tr>
+                <td><a href="/ops/tasks/{{ t.task_id }}">{{ t.task_name or t.task_id }}</a></td>
+                <td>{{ t.hours }}</td>
+                <td>{{ t.episode_count }}</td>
+                <td>{{ t.avg_duration }}</td>
+                <td>{{ t.operator_count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="empty">No tasks found.</p>
+{% endif %}
+{% endblock %}
