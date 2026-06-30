@@ -1,0 +1,9 @@
+[Unit]
+Description=Eunomia SYNC1 broken-episode sweep
+
+[Service]
+Type=oneshot
+User=pluto
+Group=pluto
+EnvironmentFile=/etc/eunomia-sync/env
+ExecStart=/home/pluto/bin/eunomia-sweep-broken.sh

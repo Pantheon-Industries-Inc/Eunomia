@@ -38,7 +38,7 @@ python_files = ["test_*.py"]
 addopts = "-ra -q"
 # Hermes's ["tests", "packages"] adapted to Eunomia's top-level module layout (no
 # packages/ parent dir). Grows as Python members are added (ingest/, edge/, ...).
-testpaths = ["contracts", "tooling", "edge/store", "consoles/provisioning", "ingest", "qc", "normalize"]
+testpaths = ["contracts", "tooling", "edge/store", "edge/sync", "consoles/provisioning", "ingest", "qc", "normalize"]
 markers = [
     # DB-backed store tests (Run S1). They skip when EUNOMIA_STORE_TEST_DSN is unset, so the default
     # `make gates` needs no database; `make gates-db` sets the DSN + selects them with `-m db`.

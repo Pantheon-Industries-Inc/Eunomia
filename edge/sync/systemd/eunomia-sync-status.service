@@ -1,0 +1,9 @@
+[Unit]
+Description=Eunomia SYNC1 status generator
+
+[Service]
+Type=oneshot
+User=pluto
+Group=pluto
+EnvironmentFile=/etc/eunomia-sync/env
+ExecStart=/home/pluto/bin/eunomia-sync-status.sh

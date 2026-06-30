@@ -1,0 +1,12 @@
+[Unit]
+Description=Eunomia SYNC1 footage pull (Styx → Hades)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pluto
+Group=pluto
+EnvironmentFile=/etc/eunomia-sync/env
+ExecStart=/home/pluto/bin/eunomia-sync-footage.sh
+TimeoutStartSec=3600
