@@ -8,7 +8,7 @@ requires-python = ">=3.12"
 dependencies = []
 
 [tool.uv.workspace]
-members = ["contracts", "tooling/bench-harness", "edge/store", "consoles/provisioning", "ingest", "qc"]
+members = ["contracts", "tooling/bench-harness", "edge/store", "consoles/provisioning", "ingest", "qc", "normalize"]
 
 [dependency-groups]
 # Mirrors Hermes exactly — these exact version bounds. Gates run on tool DEFAULTS:
@@ -38,7 +38,7 @@ python_files = ["test_*.py"]
 addopts = "-ra -q"
 # Hermes's ["tests", "packages"] adapted to Eunomia's top-level module layout (no
 # packages/ parent dir). Grows as Python members are added (ingest/, edge/, ...).
-testpaths = ["contracts", "tooling", "edge/store", "consoles/provisioning", "ingest", "qc"]
+testpaths = ["contracts", "tooling", "edge/store", "consoles/provisioning", "ingest", "qc", "normalize"]
 markers = [
     # DB-backed store tests (Run S1). They skip when EUNOMIA_STORE_TEST_DSN is unset, so the default
     # `make gates` needs no database; `make gates-db` sets the DSN + selects them with `-m db`.
@@ -48,7 +48,7 @@ markers = [
 [tool.importlinter]
 # The dependency law: everything depends only on contracts/. Mirrors the Hermes
 # import-linter pattern (config in pyproject.toml; root_packages = every import name).
-root_packages = ["eunomia_contracts", "eunomia_bench_harness", "eunomia_edge_store", "eunomia_consoles_provisioning", "eunomia_ingest", "eunomia_qc"]
+root_packages = ["eunomia_contracts", "eunomia_bench_harness", "eunomia_edge_store", "eunomia_consoles_provisioning", "eunomia_ingest", "eunomia_qc", "eunomia_normalize"]
 
 [[tool.importlinter.contracts]]
 name = "contracts spine imports nothing internal"
@@ -56,32 +56,38 @@ type = "forbidden"
 source_modules = ["eunomia_contracts"]
 # eunomia_contracts is THE SPINE (like hermes_schema): it imports no other eunomia
 # package. Extend forbidden_modules / add independence contracts as members land.
-forbidden_modules = ["eunomia_bench_harness", "eunomia_edge_store", "eunomia_ingest", "eunomia_qc"]
+forbidden_modules = ["eunomia_bench_harness", "eunomia_edge_store", "eunomia_ingest", "eunomia_qc", "eunomia_normalize"]
 
 [[tool.importlinter.contracts]]
 name = "edge/store depends only on contracts"
 type = "forbidden"
 source_modules = ["eunomia_edge_store"]
 # The store (Run S1) reads the contract spine and nothing else internal (the dependency law).
-forbidden_modules = ["eunomia_bench_harness", "eunomia_ingest", "eunomia_qc"]
+forbidden_modules = ["eunomia_bench_harness", "eunomia_ingest", "eunomia_qc", "eunomia_normalize"]
 
 [[tool.importlinter.contracts]]
 name = "consoles/provisioning depends only on contracts + edge/store + ingest + qc"
 type = "forbidden"
 source_modules = ["eunomia_consoles_provisioning"]
-forbidden_modules = ["eunomia_bench_harness"]
+forbidden_modules = ["eunomia_bench_harness", "eunomia_normalize"]
 
 [[tool.importlinter.contracts]]
 name = "ingest depends only on contracts + edge/store"
 type = "forbidden"
 source_modules = ["eunomia_ingest"]
-forbidden_modules = ["eunomia_bench_harness", "eunomia_consoles_provisioning", "eunomia_qc"]
+forbidden_modules = ["eunomia_bench_harness", "eunomia_consoles_provisioning", "eunomia_qc", "eunomia_normalize"]
 
 [[tool.importlinter.contracts]]
 name = "qc depends only on contracts + edge/store"
 type = "forbidden"
 source_modules = ["eunomia_qc"]
-forbidden_modules = ["eunomia_bench_harness", "eunomia_ingest", "eunomia_consoles_provisioning"]
+forbidden_modules = ["eunomia_bench_harness", "eunomia_ingest", "eunomia_consoles_provisioning", "eunomia_normalize"]
+
+[[tool.importlinter.contracts]]
+name = "normalize depends only on contracts + edge/store"
+type = "forbidden"
+source_modules = ["eunomia_normalize"]
+forbidden_modules = ["eunomia_bench_harness", "eunomia_ingest", "eunomia_qc", "eunomia_consoles_provisioning"]
 
 [build-system]
 requires = ["hatchling"]

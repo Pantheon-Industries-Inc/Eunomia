@@ -62,13 +62,32 @@ def _load_task(conn: Connection, episode: dict[str, Any]) -> dict[str, Any] | No
     return store.get(conn, "task", **kwargs)
 
 
+def _parse_location(loc: str) -> tuple[str, str]:
+    """Split a tier:path location string into (tier, path). Bare paths have tier=""."""
+    if ":" in loc:
+        tier, _, path_str = loc.partition(":")
+        return tier, path_str
+    return "", loc
+
+
 def _resolve_footage_path(conn: Connection, episode_id: str) -> Path | None:
+    """Resolve the best local footage path for an episode.
+
+    Prefers ``normalized:`` tier (flat perspective MP4) over bare/raw paths.
+    Locations are tier:path strings per the footage_reference contract.
+    """
     ref = store.get(conn, "footage_reference", episode_id=episode_id)
     if not ref:
         return None
-    for loc in ref.get("locations") or []:
-        if isinstance(loc, dict):
-            p = Path(loc.get("path", ""))
+    locations = ref.get("locations") or []
+    for tier_prefix in ("normalized", ""):
+        for loc in locations:
+            if not isinstance(loc, str):
+                continue
+            tier, path_str = _parse_location(loc)
+            if tier_prefix and tier != tier_prefix:
+                continue
+            p = Path(path_str)
             if p.exists():
                 return p
     return None
