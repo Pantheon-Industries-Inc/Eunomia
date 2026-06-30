@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, cast
 
-from eunomia_qc.engine import _run_checks
+from eunomia_qc.engine import _parse_location, _resolve_footage_path, _run_checks
 from eunomia_qc.frames import Frame
 from eunomia_qc.vlm import VLMClient
 
@@ -79,6 +79,77 @@ def _sample_task() -> dict[str, Any]:
             ],
         },
     }
+
+
+class TestParseLocation:
+    def test_tier_path(self) -> None:
+        tier, path = _parse_location("normalized:/foo/bar.mp4")
+        assert tier == "normalized"
+        assert path == "/foo/bar.mp4"
+
+    def test_bare_path(self) -> None:
+        tier, path = _parse_location("/foo/bar.insv")
+        assert tier == ""
+        assert path == "/foo/bar.insv"
+
+    def test_styx_tier(self) -> None:
+        tier, path = _parse_location("styx:/pool/drain/VID.insv")
+        assert tier == "styx"
+        assert path == "/pool/drain/VID.insv"
+
+
+class TestResolveFootagePath:
+    def test_prefers_normalized_tier(self, tmp_path: Any) -> None:
+        raw = tmp_path / "raw.insv"
+        raw.write_bytes(b"\x00")
+        norm = tmp_path / "workspace.mp4"
+        norm.write_bytes(b"\x00")
+
+        locations = [str(raw), f"normalized:{norm}"]
+
+        class FakeConn:
+            pass
+
+        from unittest.mock import patch
+
+        def mock_get(conn: Any, table_name: str, **key: Any) -> dict[str, Any] | None:
+            if table_name == "footage_reference":
+                return {"locations": locations}
+            return None
+
+        with patch("eunomia_qc.engine.store.get", side_effect=mock_get):
+            result = _resolve_footage_path(FakeConn(), "ep-001")  # type: ignore[arg-type]
+        assert result == norm
+
+    def test_falls_back_to_bare_path(self, tmp_path: Any) -> None:
+        raw = tmp_path / "raw.insv"
+        raw.write_bytes(b"\x00")
+
+        locations = [str(raw)]
+
+        class FakeConn:
+            pass
+
+        from unittest.mock import patch
+
+        def mock_get(conn: Any, table_name: str, **key: Any) -> dict[str, Any] | None:
+            if table_name == "footage_reference":
+                return {"locations": locations}
+            return None
+
+        with patch("eunomia_qc.engine.store.get", side_effect=mock_get):
+            result = _resolve_footage_path(FakeConn(), "ep-002")  # type: ignore[arg-type]
+        assert result == raw
+
+    def test_returns_none_for_missing_ref(self) -> None:
+        class FakeConn:
+            pass
+
+        from unittest.mock import patch
+
+        with patch("eunomia_qc.engine.store.get", return_value=None):
+            result = _resolve_footage_path(FakeConn(), "ep-missing")  # type: ignore[arg-type]
+        assert result is None
 
 
 class TestRunChecks:

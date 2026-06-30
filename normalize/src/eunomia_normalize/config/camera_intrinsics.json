@@ -1,0 +1,13 @@
+{
+  "camera_name": "insta360_x3",
+  "lens_fov_deg": 200,
+  "sbs_workspace_half": "right",
+  "perspective_crop": {
+    "fov_horizontal_deg": 120,
+    "fov_vertical_deg": 90,
+    "center_yaw_deg": 0,
+    "center_pitch_deg": 0,
+    "output_width": 960,
+    "output_height": 720
+  }
+}
