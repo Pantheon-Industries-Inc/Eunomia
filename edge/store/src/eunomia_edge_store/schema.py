@@ -218,3 +218,62 @@ AUDIT_TABLES: tuple[str, ...] = (
 CURRENT_STATE_TABLES: tuple[str, ...] = tuple(
     name for name in TABLES if name not in AUDIT_TABLES
 )
+
+# ---- store-native supervisor tables (Run P3 — NOT contract entities, mutable) ----
+
+#: Postgres sequence for permanent numeric task IDs (retire-not-reuse, like camera_id_seq).
+task_catalog_seq = sa.Sequence("task_catalog_seq", metadata=metadata)
+
+#: Per-operator weekly task assignments. Mutable (status flips active→removed).
+operator_task_assignment = sa.Table(
+    "operator_task_assignment",
+    metadata,
+    sa.Column("id", sa.BigInteger, sa.Identity(always=True), primary_key=True),
+    sa.Column("person_id", sa.Text, nullable=False),
+    sa.Column("task_id", sa.Text, nullable=False),
+    sa.Column(
+        "assigned_at",
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    ),
+    sa.Column("assigned_by", sa.Text, nullable=False),
+    sa.Column("week_of", sa.Date, nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'active'")),
+    sa.Column("removed_at", sa.DateTime(timezone=True), nullable=True),
+    sa.UniqueConstraint(
+        "person_id", "task_id", "week_of", name="uq_ota_person_task_week"
+    ),
+)
+sa.Index(
+    "ix_ota_person_week",
+    operator_task_assignment.c.person_id,
+    operator_task_assignment.c.week_of,
+)
+sa.Index("ix_ota_task", operator_task_assignment.c.task_id)
+
+#: Research-team hour targets per task per period.
+collection_target = sa.Table(
+    "collection_target",
+    metadata,
+    sa.Column("id", sa.BigInteger, sa.Identity(always=True), primary_key=True),
+    sa.Column("task_id", sa.Text, nullable=False),
+    sa.Column("target_hours", sa.Double, nullable=False),
+    sa.Column("period", sa.Text, nullable=False),
+    sa.Column("created_by", sa.Text, nullable=False),
+    sa.Column(
+        "created_at",
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    ),
+    sa.UniqueConstraint("task_id", "period", name="uq_ct_task_period"),
+)
+sa.Index("ix_ct_task", collection_target.c.task_id)
+sa.Index("ix_ct_period", collection_target.c.period)
+
+#: The P3 supervisor tables (mutable, not audit — writer gets full SELECT/INSERT/UPDATE).
+SUPERVISOR_TABLES: tuple[str, ...] = (
+    "operator_task_assignment",
+    "collection_target",
+)

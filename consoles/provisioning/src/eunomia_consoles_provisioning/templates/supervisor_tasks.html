@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Provisioning Console — Task Catalog{% endblock %}
+{% block content %}
+<h1>Task Catalog</h1>
+
+{% if not store_available %}
+<div class="status-fail" style="margin-bottom:1rem;">Store not configured — set EUNOMIA_STORE_DSN to enable supervisor features.</div>
+{% else %}
+
+<div class="card">
+    <h2>New Task</h2>
+    <div class="grid-2">
+        <div>
+            <label for="task_name">Task Name</label>
+            <input type="text" id="task_name" placeholder="lift 3 blocks">
+        </div>
+        <div>
+            <label for="task_category">Category</label>
+            <input type="text" id="task_category" placeholder="direct_manipulation">
+        </div>
+    </div>
+    <div class="grid-2">
+        <div>
+            <label for="task_family">Family</label>
+            <input type="text" id="task_family" placeholder="lift_blocks">
+        </div>
+        <div>
+            <label for="task_duration">Expected Duration (s)</label>
+            <input type="number" id="task_duration" placeholder="60" step="1">
+        </div>
+    </div>
+    <button class="btn-primary"
+            hx-post="/api/supervisor/tasks"
+            hx-vals='js:{
+                task_name: document.getElementById("task_name").value,
+                category: document.getElementById("task_category").value || null,
+                family: document.getElementById("task_family").value || null,
+                expected_duration_s: parseFloat(document.getElementById("task_duration").value) || null
+            }'
+            hx-target="#task-result"
+            hx-swap="innerHTML"
+            hx-on::after-request="if(event.detail.successful) { htmx.trigger('#task-table','load'); document.getElementById('task_name').value=''; }">
+        Create Task
+    </button>
+    <div id="task-result" style="margin-top:0.5rem;"></div>
+</div>
+
+<div class="card">
+    <h2>Catalog</h2>
+    <div id="task-table" hx-get="/api/supervisor/tasks" hx-trigger="load" hx-swap="innerHTML">
+        <p>Loading...</p>
+    </div>
+</div>
+
+<template id="task-table-tpl">
+    <table>
+        <thead>
+            <tr><th>ID</th><th>Name</th><th>Category</th><th>Family</th><th>Status</th><th>Collected</th><th>Target</th><th></th></tr>
+        </thead>
+        <tbody id="task-rows"></tbody>
+    </table>
+</template>
+
+<script>
+document.body.addEventListener('htmx:afterRequest', function(evt) {
+    if (evt.detail.pathInfo && evt.detail.pathInfo.requestPath === '/api/supervisor/tasks' && evt.detail.verb === 'get') {
+        try {
+            const tasks = JSON.parse(evt.detail.xhr.responseText);
+            let html = '<table><thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Family</th><th>Status</th><th>Collected</th><th>Target</th><th></th></tr></thead><tbody>';
+            tasks.forEach(function(t) {
+                const statusClass = t.status === 'active' ? 'pass' : 'warn';
+                html += '<tr>';
+                html += '<td>' + t.task_id + '</td>';
+                html += '<td>' + (t.task_name || '') + '</td>';
+                html += '<td>' + (t.category || '') + '</td>';
+                html += '<td>' + (t.family || '') + '</td>';
+                html += '<td class="' + statusClass + '">' + t.status + '</td>';
+                html += '<td>' + (t.collected_hours || 0) + 'h / ' + (t.episode_count || 0) + ' ep</td>';
+                html += '<td>' + (t.target_hours || 0) + 'h</td>';
+                if (t.status === 'active') {
+                    html += '<td><button class="btn-danger" style="font-size:0.8rem;padding:0.25rem 0.5rem;" hx-post="/api/supervisor/tasks/' + t.task_id + '/decommission" hx-target="#task-table" hx-swap="innerHTML" hx-confirm="Decommission task ' + t.task_id + '?" hx-on::after-request="htmx.trigger(\'#task-table\',\'load\')">Decommission</button></td>';
+                } else {
+                    html += '<td></td>';
+                }
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            document.getElementById('task-table').innerHTML = html;
+            htmx.process(document.getElementById('task-table'));
+        } catch(e) {}
+    }
+});
+</script>
+
+{% endif %}
+{% endblock %}

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Provisioning Console — Operator Assignments{% endblock %}
+{% block content %}
+<h1>Operator Assignments</h1>
+
+{% if not store_available %}
+<div class="status-fail" style="margin-bottom:1rem;">Store not configured — set EUNOMIA_STORE_DSN to enable supervisor features.</div>
+{% else %}
+
+<div class="card" style="display:flex; align-items:center; gap:1rem;">
+    <label for="week-select" style="margin:0; white-space:nowrap;">Week of:</label>
+    <input type="date" id="week-select" style="max-width:200px;">
+    <button class="btn-primary" onclick="loadOperators()">Load</button>
+</div>
+
+<div id="operators-container">
+    <p>Loading...</p>
+</div>
+
+<script>
+function currentMonday() {
+    const d = new Date();
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(d.setDate(diff));
+    return monday.toISOString().split('T')[0];
+}
+
+document.getElementById('week-select').value = currentMonday();
+
+function loadOperators() {
+    const weekOf = document.getElementById('week-select').value;
+    fetch('/api/supervisor/operators?week_of=' + weekOf)
+        .then(r => r.json())
+        .then(operators => renderOperators(operators, weekOf))
+        .catch(e => { document.getElementById('operators-container').innerHTML = '<div class="status-fail">Error loading operators</div>'; });
+}
+
+function loadTasks() {
+    return fetch('/api/supervisor/tasks').then(r => r.json());
+}
+
+function renderOperators(operators, weekOf) {
+    const container = document.getElementById('operators-container');
+    if (!operators.length) {
+        container.innerHTML = '<div class="card"><p>No active operators found. Add operators via the Roster page first.</p></div>';
+        return;
+    }
+
+    let html = '';
+    operators.forEach(function(op) {
+        const count = op.assignment_count || 0;
+        const cap = 10;
+        const capClass = count >= cap ? 'fail' : 'pass';
+        html += '<div class="card" style="margin-bottom:1rem;">';
+        html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">';
+        html += '<h2 style="margin:0;">' + (op.name || op.person_id) + ' <span style="font-weight:400;color:#6c757d;">(' + op.person_id + ')</span></h2>';
+        html += '<span class="' + capClass + '">' + count + '/' + cap + ' tasks</span>';
+        html += ' <a href="/supervisor/operators/' + op.person_id + '/sheet?week_of=' + weekOf + '" target="_blank" style="font-size:0.85rem;">Print Sheet</a>';
+        html += '</div>';
+
+        if (op.assignments && op.assignments.length) {
+            html += '<table style="margin-bottom:0.75rem;"><thead><tr><th>ID</th><th>Task</th><th></th></tr></thead><tbody>';
+            op.assignments.forEach(function(a) {
+                html += '<tr>';
+                html += '<td>' + a.task_id + '</td>';
+                html += '<td>' + (a.task_name || '') + '</td>';
+                html += '<td><button class="btn-danger" style="font-size:0.75rem;padding:0.2rem 0.4rem;" onclick="unassignTask(\'' + op.person_id + '\',\'' + a.task_id + '\',\'' + weekOf + '\')">Remove</button></td>';
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+        } else {
+            html += '<p style="color:#6c757d;">No tasks assigned this week.</p>';
+        }
+
+        if (count < cap) {
+            html += '<div style="display:flex;gap:0.5rem;align-items:center;">';
+            html += '<select id="add-task-' + op.person_id + '" style="max-width:300px;margin:0;"><option value="">+ Add task...</option></select>';
+            html += '<button class="btn-primary" style="font-size:0.85rem;" onclick="assignTask(\'' + op.person_id + '\',\'' + weekOf + '\')">Add</button>';
+            html += '</div>';
+        }
+        html += '</div>';
+    });
+    container.innerHTML = html;
+
+    loadTasks().then(tasks => {
+        const activeTasks = tasks.filter(t => t.status === 'active');
+        operators.forEach(function(op) {
+            const sel = document.getElementById('add-task-' + op.person_id);
+            if (!sel) return;
+            const assigned = new Set((op.assignments || []).map(a => a.task_id));
+            activeTasks.forEach(function(t) {
+                if (!assigned.has(t.task_id)) {
+                    const opt = document.createElement('option');
+                    opt.value = t.task_id;
+                    opt.textContent = t.task_id + ' — ' + (t.task_name || '');
+                    sel.appendChild(opt);
+                }
+            });
+        });
+    });
+}
+
+function assignTask(personId, weekOf) {
+    const sel = document.getElementById('add-task-' + personId);
+    const taskId = sel.value;
+    if (!taskId) return;
+    fetch('/api/supervisor/operators/' + personId + '/assign', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({task_id: taskId, week_of: weekOf, assigned_by: 'supervisor'})
+    }).then(r => { if (r.ok) loadOperators(); else r.json().then(j => alert(j.detail || 'Error')); });
+}
+
+function unassignTask(personId, taskId, weekOf) {
+    fetch('/api/supervisor/operators/' + personId + '/unassign', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({task_id: taskId, week_of: weekOf})
+    }).then(r => { if (r.ok) loadOperators(); else r.json().then(j => alert(j.detail || 'Error')); });
+}
+
+loadOperators();
+</script>
+
+{% endif %}
+{% endblock %}
