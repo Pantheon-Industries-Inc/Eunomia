@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from eunomia_contracts import _semantics
 
@@ -21,6 +21,7 @@ class Task:
     bimanual: bool = False
     expected_duration_s: float | None = None
     effective_from: str | None = None
+    metadata: dict = field(default_factory=dict)
     effective_to: str | None = None
 
 
@@ -42,6 +43,7 @@ _TABLES = _semantics.Tables(
         ("bimanual", "bool"),
         ("expected_duration_s", "number"),
         ("effective_from", "string"),
+        ("metadata", "object"),
         ("effective_to", "string"),
     ],
     enums={
@@ -55,6 +57,7 @@ _TABLES = _semantics.Tables(
         "family",
         "expected_duration_s",
         "effective_from",
+        "metadata",
         "effective_to",
     ],
     cond_pattern="",

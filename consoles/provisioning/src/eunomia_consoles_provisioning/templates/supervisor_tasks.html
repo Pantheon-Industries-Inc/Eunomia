@@ -29,17 +29,28 @@
             <input type="number" id="task_duration" placeholder="60" step="1">
         </div>
     </div>
+    <div>
+        <label for="task_metadata">Metadata (JSON, optional)</label>
+        <textarea id="task_metadata" rows="3" placeholder='{"props": ["towel", "basket"], "object_count": 2}'
+                  style="width:100%;font-family:monospace;font-size:0.85rem;"></textarea>
+    </div>
     <button class="btn-primary"
             hx-post="/api/supervisor/tasks"
-            hx-vals='js:{
-                task_name: document.getElementById("task_name").value,
-                category: document.getElementById("task_category").value || null,
-                family: document.getElementById("task_family").value || null,
-                expected_duration_s: parseFloat(document.getElementById("task_duration").value) || null
-            }'
+            hx-vals='js:(function(){
+                var md = document.getElementById("task_metadata").value.trim();
+                var meta = null;
+                if (md) { try { meta = JSON.parse(md); } catch(e) { alert("Invalid JSON in metadata"); return false; } }
+                return {
+                    task_name: document.getElementById("task_name").value,
+                    category: document.getElementById("task_category").value || null,
+                    family: document.getElementById("task_family").value || null,
+                    expected_duration_s: parseFloat(document.getElementById("task_duration").value) || null,
+                    metadata: meta
+                };
+            })()'
             hx-target="#task-result"
             hx-swap="innerHTML"
-            hx-on::after-request="if(event.detail.successful) { htmx.trigger('#task-table','load'); document.getElementById('task_name').value=''; }">
+            hx-on::after-request="if(event.detail.successful) { htmx.trigger('#task-table','load'); document.getElementById('task_name').value=''; document.getElementById('task_metadata').value=''; }">
         Create Task
     </button>
     <div id="task-result" style="margin-top:0.5rem;"></div>
@@ -66,14 +77,20 @@ document.body.addEventListener('htmx:afterRequest', function(evt) {
     if (evt.detail.pathInfo && evt.detail.pathInfo.requestPath === '/api/supervisor/tasks' && evt.detail.verb === 'get') {
         try {
             const tasks = JSON.parse(evt.detail.xhr.responseText);
-            let html = '<table><thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Family</th><th>Status</th><th>Collected</th><th>Target</th><th></th></tr></thead><tbody>';
+            let html = '<table><thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Family</th><th>Metadata</th><th>Status</th><th>Collected</th><th>Target</th><th></th></tr></thead><tbody>';
             tasks.forEach(function(t) {
                 const statusClass = t.status === 'active' ? 'pass' : 'warn';
+                var metaStr = '';
+                if (t.metadata) {
+                    var full = JSON.stringify(t.metadata);
+                    metaStr = '<span title="' + full.replace(/"/g, '&quot;') + '" style="cursor:help;font-size:0.8rem;font-family:monospace;">' + (full.length > 30 ? full.substring(0, 30) + '…' : full) + '</span>';
+                }
                 html += '<tr>';
                 html += '<td>' + t.task_id + '</td>';
                 html += '<td>' + (t.task_name || '') + '</td>';
                 html += '<td>' + (t.category || '') + '</td>';
                 html += '<td>' + (t.family || '') + '</td>';
+                html += '<td>' + metaStr + '</td>';
                 html += '<td class="' + statusClass + '">' + t.status + '</td>';
                 html += '<td>' + (t.collected_hours || 0) + 'h / ' + (t.episode_count || 0) + ' ep</td>';
                 html += '<td>' + (t.target_hours || 0) + 'h</td>';

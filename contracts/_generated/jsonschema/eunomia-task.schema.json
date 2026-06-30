@@ -43,6 +43,13 @@
         "null"
       ]
     },
+    "metadata": {
+      "description": "Flexible operational metadata for the task. Convention \u2014 props (list of required objects), scene_setup (description of table arrangement before recording), reference_dataset (name of existing dataset this task matches), reference_episodes (list of episode IDs from that dataset), object_count (number of objects involved), difficulty (complexity estimate).",
+      "type": [
+        "object",
+        "null"
+      ]
+    },
     "prompt": {
       "description": "Task prompt (versioned; resolved as-of recording).",
       "type": "string"

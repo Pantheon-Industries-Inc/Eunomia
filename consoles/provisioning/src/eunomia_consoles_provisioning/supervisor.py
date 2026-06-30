@@ -53,6 +53,7 @@ def create_task(
     family: str | None = None,
     expected_duration_s: float | None = None,
     bimanual: bool = False,
+    metadata: dict[str, Any] | None = None,
     created_by: str = "supervisor",
 ) -> dict[str, Any]:
     """Create a new catalog task with a permanent numeric ID."""
@@ -69,6 +70,7 @@ def create_task(
         "family": family,
         "bimanual": bimanual,
         "expected_duration_s": expected_duration_s,
+        "metadata": metadata,
         "effective_from": now,
     }
     store.upsert(conn, "task", record)

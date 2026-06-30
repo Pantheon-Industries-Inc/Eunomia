@@ -105,6 +105,7 @@ class CreateTaskRequest(BaseModel):
     family: str | None = None
     expected_duration_s: float | None = None
     bimanual: bool = False
+    metadata: dict[str, Any] | None = None
 
 
 class AssignTaskRequest(BaseModel):
@@ -288,6 +289,7 @@ async def api_list_tasks(conn: Connection = Depends(get_conn)) -> list[dict[str,
                 "task_name": t.get("task_name", ""),
                 "category": t.get("category"),
                 "family": t.get("family"),
+                "metadata": t.get("metadata"),
                 "status": get_task_status(t),
                 "expected_duration_s": t.get("expected_duration_s"),
                 "collected_hours": p.get("collected_hours", 0),
@@ -314,6 +316,7 @@ async def api_create_task(
         family=req.family,
         expected_duration_s=req.expected_duration_s,
         bimanual=req.bimanual,
+        metadata=req.metadata,
     )
     return task
 
