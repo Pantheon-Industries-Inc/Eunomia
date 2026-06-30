@@ -1,0 +1,77 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — Inspect Episodes{% endblock %}
+{% block sub_inspect %}active{% endblock %}
+{% block content %}
+<h1>Inspect: Episodes</h1>
+
+<div class="sub-nav">
+    <a href="/ops/inspect/episodes" class="active">Episodes</a>
+    <a href="/ops/inspect/events">Events</a>
+    <a href="/ops/inspect/sessions">Sessions</a>
+    <a href="/ops/inspect/tasks">Tasks</a>
+</div>
+
+<form class="filters" hx-get="/ops/inspect/episodes" hx-target="#results" hx-push-url="true">
+    <div class="field">
+        <label for="episode_id">Episode ID</label>
+        <input type="text" name="episode_id" id="episode_id" value="{{ q_episode_id }}" placeholder="search..." style="width:140px;padding:0.4rem;border:1px solid #ced4da;border-radius:4px;font-size:0.85rem">
+    </div>
+    <div class="field">
+        <label for="kit_id">Kit</label>
+        <input type="text" name="kit_id" id="kit_id" value="{{ q_kit_id }}" placeholder="kit_001" style="width:100px;padding:0.4rem;border:1px solid #ced4da;border-radius:4px;font-size:0.85rem">
+    </div>
+    <div class="field">
+        <label for="task_id">Task</label>
+        <input type="text" name="task_id" id="task_id" value="{{ q_task_id }}" placeholder="t_01" style="width:100px;padding:0.4rem;border:1px solid #ced4da;border-radius:4px;font-size:0.85rem">
+    </div>
+    <div class="field">
+        <label for="operator_id">Operator</label>
+        <input type="text" name="operator_id" id="operator_id" value="{{ q_operator_id }}" placeholder="op_01" style="width:100px;padding:0.4rem;border:1px solid #ced4da;border-radius:4px;font-size:0.85rem">
+    </div>
+    <button type="submit" class="btn-primary">Search</button>
+</form>
+
+<div id="results">
+{% if episodes %}
+<div class="card table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Episode ID</th>
+                <th>Recorded</th>
+                <th>Kit</th>
+                <th>Operator</th>
+                <th>Task</th>
+                <th>Frames</th>
+                <th>Suspect</th>
+                <th>Void</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for ep in episodes %}
+            <tr>
+                <td><a href="/ops/inspect/episodes/{{ ep.episode_id }}">{{ ep.episode_id }}</a></td>
+                <td>{{ ep.recorded_at.strftime('%Y-%m-%d %H:%M') if ep.recorded_at else '—' }}</td>
+                <td>{{ ep.kit_id or '—' }}</td>
+                <td>{{ ep.operator_name or ep.person_id or '—' }}</td>
+                <td>{{ ep.task_name or ep.task_id or '—' }}</td>
+                <td>{{ ep.archive or 0 }}</td>
+                <td>{% if ep.recording_suspect %}<span class="badge badge-warn">yes</span>{% else %}no{% endif %}</td>
+                <td>{% if ep.void %}<span class="badge badge-danger">yes</span>{% else %}no{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if has_more %}
+<div style="text-align:center;margin:1rem 0">
+    <a href="/ops/inspect/episodes?offset={{ offset + limit }}{% if q_episode_id %}&episode_id={{ q_episode_id }}{% endif %}{% if q_kit_id %}&kit_id={{ q_kit_id }}{% endif %}{% if q_task_id %}&task_id={{ q_task_id }}{% endif %}{% if q_operator_id %}&operator_id={{ q_operator_id }}{% endif %}" class="btn-primary" style="display:inline-block;text-decoration:none;color:#fff">Load more</a>
+</div>
+{% endif %}
+
+{% else %}
+<p class="empty">No episodes found.</p>
+{% endif %}
+</div>
+{% endblock %}

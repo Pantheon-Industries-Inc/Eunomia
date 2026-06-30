@@ -66,10 +66,10 @@ source_modules = ["eunomia_edge_store"]
 forbidden_modules = ["eunomia_bench_harness", "eunomia_ingest", "eunomia_qc"]
 
 [[tool.importlinter.contracts]]
-name = "consoles/provisioning depends only on contracts + edge/store"
+name = "consoles/provisioning depends only on contracts + edge/store + ingest + qc"
 type = "forbidden"
 source_modules = ["eunomia_consoles_provisioning"]
-forbidden_modules = ["eunomia_bench_harness", "eunomia_ingest"]
+forbidden_modules = ["eunomia_bench_harness"]
 
 [[tool.importlinter.contracts]]
 name = "ingest depends only on contracts + edge/store"

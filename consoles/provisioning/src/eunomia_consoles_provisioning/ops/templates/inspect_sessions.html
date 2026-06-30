@@ -1,0 +1,53 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — Inspect Sessions{% endblock %}
+{% block sub_inspect %}active{% endblock %}
+{% block content %}
+<h1>Inspect: Sessions</h1>
+
+<div class="sub-nav">
+    <a href="/ops/inspect/episodes">Episodes</a>
+    <a href="/ops/inspect/events">Events</a>
+    <a href="/ops/inspect/sessions" class="active">Sessions</a>
+    <a href="/ops/inspect/tasks">Tasks</a>
+</div>
+
+<div id="results">
+{% if sessions %}
+<div class="card table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Session ID</th>
+                <th>Operator</th>
+                <th>Kit</th>
+                <th>Station</th>
+                <th>Signed In</th>
+                <th>Signed Out</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in sessions %}
+            <tr>
+                <td style="font-size:0.8rem">{{ s.session_id }}</td>
+                <td>{{ s.operator_name or s.person_id or '—' }}</td>
+                <td>{{ s.kit_id or '—' }}</td>
+                <td>{{ s.station_id or '—' }}</td>
+                <td>{{ s.signed_in_at.strftime('%Y-%m-%d %H:%M') if s.signed_in_at else '—' }}</td>
+                <td>{{ s.signed_out_at.strftime('%Y-%m-%d %H:%M') if s.signed_out_at else '—' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if has_more %}
+<div style="text-align:center;margin:1rem 0">
+    <a href="/ops/inspect/sessions?offset={{ offset + limit }}" class="btn-primary" style="display:inline-block;text-decoration:none;color:#fff">Load more</a>
+</div>
+{% endif %}
+
+{% else %}
+<p class="empty">No sessions found.</p>
+{% endif %}
+</div>
+{% endblock %}
