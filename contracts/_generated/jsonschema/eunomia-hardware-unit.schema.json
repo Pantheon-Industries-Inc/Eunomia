@@ -39,6 +39,13 @@
         "null"
       ]
     },
+    "hardware_catalog_id": {
+      "description": "Reference to hardware_catalog.catalog_id (V1 catalog). Admin-set; null until cataloged.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "hardware_version": {
       "description": "Hardware revision.",
       "type": [

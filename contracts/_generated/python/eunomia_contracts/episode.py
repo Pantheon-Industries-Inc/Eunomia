@@ -37,6 +37,7 @@ class Episode:
     pairing_anomaly: bool = False
     sidecar_raw: dict = field(default_factory=dict)
     firmware_version: str | None = None
+    setup_version_id: str | None = None
 
 
 SCHEMA_ID = "eunomia-episode/v1"
@@ -73,6 +74,7 @@ _TABLES = _semantics.Tables(
         ("pairing_anomaly", "bool"),
         ("sidecar_raw", "object"),
         ("firmware_version", "string"),
+        ("setup_version_id", "string"),
     ],
     enums={
         "pairing_method": ["episode_id", "ordinal_join", "needs_review"],
@@ -93,6 +95,7 @@ _TABLES = _semantics.Tables(
         "void_reason",
         "sidecar_raw",
         "firmware_version",
+        "setup_version_id",
     ],
     cond_pattern="",
     cond_fields=[],

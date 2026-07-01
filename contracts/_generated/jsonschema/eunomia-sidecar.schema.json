@@ -96,6 +96,13 @@
           "description": "Shift/session identity.",
           "type": "string"
         },
+        "setup_version_id": {
+          "description": "Setup configuration this episode was recorded under (V1 catalog). Null until fob firmware writes it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "side": {
           "description": "Camera side (from the camera NAND). HARD-non-empty \u2014 decides L/R pairing.",
           "enum": [

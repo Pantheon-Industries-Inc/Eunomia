@@ -50,6 +50,13 @@
         "eunomia-kit/v1"
       ],
       "type": "string"
+    },
+    "setup_version_id": {
+      "description": "Setup configuration this kit is provisioned with (V1 catalog). Admin-set; null until assigned.",
+      "type": [
+        "string",
+        "null"
+      ]
     }
   },
   "required": [

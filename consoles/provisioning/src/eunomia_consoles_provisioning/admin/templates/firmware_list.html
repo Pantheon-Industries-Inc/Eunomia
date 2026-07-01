@@ -1,0 +1,56 @@
+{% extends "admin_base.html" %}
+{% block title %}Admin — Firmware Catalog{% endblock %}
+{% block sub_firmware %}active{% endblock %}
+{% block content %}
+<h1>Firmware Catalog</h1>
+
+{% if items %}
+<div class="card">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Hardware</th>
+                    <th>Version</th>
+                    <th>Sidecar Schema</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td><code>{{ item.firmware_id }}</code></td>
+                    <td>{{ item.hardware_name or item.hardware_catalog_id }}</td>
+                    <td><strong>{{ item.version }}</strong></td>
+                    <td>{{ item.sidecar_schema_version or '—' }}</td>
+                    <td>
+                        {% if item.status == 'released' %}<span class="badge badge-ok">released</span>
+                        {% elif item.status == 'testing' %}<span class="badge badge-warn">testing</span>
+                        {% elif item.status == 'deprecated' %}<span class="badge badge-danger">deprecated</span>
+                        {% else %}<span class="badge badge-muted">{{ item.status }}</span>{% endif %}
+                    </td>
+                    <td><a href="/admin/firmware/{{ item.firmware_id }}/edit">Edit</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card empty">
+    {% if hardware %}
+    <p>No firmware versions registered.</p>
+    <p style="margin-top:0.5rem;"><a href="/admin/firmware/new" class="btn-primary" style="display:inline-block;padding:0.5rem 1.25rem;border-radius:4px;text-decoration:none;color:#fff;">Add your first firmware version</a></p>
+    {% else %}
+    <p>No firmware versions registered.</p>
+    <p style="margin-top:0.5rem;">Add a <a href="/admin/hardware/new">hardware type</a> first, then register firmware for it.</p>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if items %}
+<a href="/admin/firmware/new" class="btn-primary" style="display:inline-block;padding:0.5rem 1.25rem;border-radius:4px;text-decoration:none;color:#fff;">Add firmware version</a>
+{% endif %}
+{% endblock %}

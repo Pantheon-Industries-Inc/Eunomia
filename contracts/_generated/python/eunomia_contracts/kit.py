@@ -16,6 +16,7 @@ class Kit:
     fob_unit_id: str | None = None
     effective_from: str | None = None
     effective_to: str | None = None
+    setup_version_id: str | None = None
 
 
 SCHEMA_ID = "eunomia-kit/v1"
@@ -31,6 +32,7 @@ _TABLES = _semantics.Tables(
         ("fob_unit_id", "string"),
         ("effective_from", "string"),
         ("effective_to", "string"),
+        ("setup_version_id", "string"),
     ],
     enums={
         "schema": ["eunomia-kit/v1"],
@@ -44,6 +46,7 @@ _TABLES = _semantics.Tables(
         "fob_unit_id",
         "effective_from",
         "effective_to",
+        "setup_version_id",
     ],
     cond_pattern="",
     cond_fields=[],

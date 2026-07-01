@@ -185,6 +185,97 @@ def test_raw_preserves_unknown_fields(tmp_path: Path) -> None:
     assert record.raw["provenance"]["future_sensor"] == "lidar_v2"
 
 
+def test_parse_sidecar_reads_setup_version_id(tmp_path: Path) -> None:
+    sidecar = {
+        "schema": "eunomia-sidecar/v1",
+        "seq": 1,
+        "global_episode_seq": 1,
+        "identity": {
+            "camera_id": "c",
+            "kit_id": "k",
+            "side": "right",
+            "operator_id": "o",
+            "station_id": "s",
+            "task_id": "t",
+            "task_name": "n",
+            "session_id": "s",
+            "episode_id": "setup-test-uuid",
+            "rotation_id": "r",
+            "prompt": "p",
+            "task_source": "none",
+            "setup_version_id": "umi-bimanual-v1",
+        },
+        "files": {"back": "MISSING.insv"},
+    }
+    p = tmp_path / "setup.eunomia.json"
+    p.write_text(json.dumps(sidecar))
+    record, _ = parse_sidecar(p)
+    assert record is not None
+    assert record.setup_version_id == "umi-bimanual-v1"
+
+
+def test_parse_sidecar_setup_version_id_defaults_none(tmp_path: Path) -> None:
+    sidecar = {
+        "schema": "eunomia-sidecar/v1",
+        "seq": 1,
+        "global_episode_seq": 1,
+        "identity": {
+            "camera_id": "c",
+            "kit_id": "k",
+            "side": "right",
+            "operator_id": "o",
+            "station_id": "s",
+            "task_id": "t",
+            "task_name": "n",
+            "session_id": "s",
+            "episode_id": "no-setup-uuid",
+            "rotation_id": "r",
+            "prompt": "p",
+            "task_source": "none",
+        },
+        "files": {"back": "MISSING.insv"},
+    }
+    p = tmp_path / "no_setup.eunomia.json"
+    p.write_text(json.dumps(sidecar))
+    record, _ = parse_sidecar(p)
+    assert record is not None
+    assert record.setup_version_id is None
+
+
+def test_sidecar_to_episode_maps_setup_version_id(tmp_path: Path) -> None:
+    from eunomia_ingest.ingest import _sidecar_to_episode
+
+    sidecar = {
+        "schema": "eunomia-sidecar/v1",
+        "seq": 1,
+        "global_episode_seq": 1,
+        "identity": {
+            "camera_id": "c",
+            "kit_id": "k",
+            "side": "left",
+            "operator_id": "o",
+            "station_id": "s",
+            "task_id": "t",
+            "task_name": "n",
+            "session_id": "s",
+            "episode_id": "map-test-uuid",
+            "rotation_id": "r",
+            "prompt": "p",
+            "task_source": "none",
+            "setup_version_id": "umi-bimanual-v1",
+        },
+        "timing": {"started_unix": 1750000000.5},
+        "provenance": {"fob_build": "3.8.3"},
+        "files": {"back": "MISSING.insv"},
+    }
+    p = tmp_path / "map_test.eunomia.json"
+    p.write_text(json.dumps(sidecar))
+    record, _ = parse_sidecar(p)
+    assert record is not None
+    episode = _sidecar_to_episode(record)
+    assert episode["setup_version_id"] == "umi-bimanual-v1"
+
+
 def test_sidecar_without_footage(tmp_path: Path) -> None:
     """Sidecar referencing a footage file that doesn't exist."""
     sidecar = {

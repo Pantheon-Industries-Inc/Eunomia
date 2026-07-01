@@ -1,0 +1,51 @@
+{% extends "admin_base.html" %}
+{% block title %}Admin — Hardware Catalog{% endblock %}
+{% block sub_hardware %}active{% endblock %}
+{% block content %}
+<h1>Hardware Catalog</h1>
+
+{% if items %}
+<div class="card">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td><code>{{ item.catalog_id }}</code></td>
+                    <td>
+                        {% if item.photo_url %}<img src="{{ item.photo_url }}" alt="" style="height:24px;vertical-align:middle;margin-right:0.5rem;border-radius:3px;">{% endif %}
+                        {{ item.display_name }}
+                    </td>
+                    <td><span class="badge badge-muted">{{ item.category }}</span></td>
+                    <td>
+                        {% if item.status == 'active' %}<span class="badge badge-ok">active</span>
+                        {% elif item.status == 'deprecated' %}<span class="badge badge-danger">deprecated</span>
+                        {% else %}<span class="badge badge-muted">{{ item.status }}</span>{% endif %}
+                    </td>
+                    <td><a href="/admin/hardware/{{ item.catalog_id }}/edit">Edit</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card empty">
+    <p>No hardware types registered.</p>
+    <p style="margin-top:0.5rem;"><a href="/admin/hardware/new" class="btn-primary" style="display:inline-block;padding:0.5rem 1.25rem;border-radius:4px;text-decoration:none;color:#fff;">Add your first hardware type</a></p>
+</div>
+{% endif %}
+
+{% if items %}
+<a href="/admin/hardware/new" class="btn-primary" style="display:inline-block;padding:0.5rem 1.25rem;border-radius:4px;text-decoration:none;color:#fff;">Add hardware type</a>
+{% endif %}
+{% endblock %}

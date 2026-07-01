@@ -37,6 +37,7 @@ struct Sidecar {
   std::string record_settings{};
   std::string mount{};
   std::string assignment_source{};
+  std::string setup_version_id{};
   double started_unix{};
   double stopped_unix{};
   double start_skew_ms{};
@@ -77,6 +78,7 @@ inline bool parse_sidecar(const std::string& s, Sidecar& out) {
   parse_string(s, "record_settings", out.record_settings);
   parse_string(s, "mount", out.mount);
   parse_string(s, "assignment_source", out.assignment_source);
+  parse_string(s, "setup_version_id", out.setup_version_id);
   parse_number(s, "started_unix", out.started_unix);
   parse_number(s, "stopped_unix", out.stopped_unix);
   parse_number(s, "start_skew_ms", out.start_skew_ms);
@@ -119,6 +121,7 @@ inline std::string serialize_sidecar(const Sidecar& v) {
   o += ",\"record_settings\":\"" + v.record_settings + "\"";
   o += ",\"mount\":\"" + v.mount + "\"";
   o += ",\"assignment_source\":\"" + v.assignment_source + "\"";
+  o += ",\"setup_version_id\":\"" + v.setup_version_id + "\"";
   o += ",\"started_unix\":" + std::to_string(v.started_unix);
   o += ",\"stopped_unix\":" + std::to_string(v.stopped_unix);
   o += ",\"start_skew_ms\":" + std::to_string(v.start_skew_ms);

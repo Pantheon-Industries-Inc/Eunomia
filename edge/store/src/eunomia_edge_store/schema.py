@@ -59,13 +59,24 @@ ENTITIES: tuple[EntitySpec, ...] = (
         hardware_unit,
         "hardware_unit",
         ("unit_id",),
-        indexes=(("kit_id",), ("camera_id",), ("fob_id",), ("body_serial",)),
+        indexes=(
+            ("kit_id",),
+            ("camera_id",),
+            ("fob_id",),
+            ("body_serial",),
+            ("hardware_catalog_id",),
+        ),
     ),
     EntitySpec(
         kit,
         "kit",
         ("kit_id",),
-        indexes=(("left_cam_unit_id",), ("right_cam_unit_id",), ("fob_unit_id",)),
+        indexes=(
+            ("left_cam_unit_id",),
+            ("right_cam_unit_id",),
+            ("fob_unit_id",),
+            ("setup_version_id",),
+        ),
     ),
     EntitySpec(
         calibration, "calibration", ("calibration_id",), indexes=(("camera_serial",),)
@@ -103,6 +114,7 @@ ENTITIES: tuple[EntitySpec, ...] = (
             ("calibration_id",),
             ("capture_stack_id",),
             ("task_id", "task_version", "rotation_id"),
+            ("setup_version_id",),
         ),
     ),
     EntitySpec(station, "station", ("site_id", "station_id")),
@@ -276,4 +288,80 @@ sa.Index("ix_ct_period", collection_target.c.period)
 SUPERVISOR_TABLES: tuple[str, ...] = (
     "operator_task_assignment",
     "collection_target",
+)
+
+# ---- store-native catalog tables (Run V1 — NOT contract entities, mutable) ----
+
+#: Registry of hardware TYPES (not instances). Admin-managed via /admin/hardware.
+hardware_catalog = sa.Table(
+    "hardware_catalog",
+    metadata,
+    sa.Column("catalog_id", sa.Text, primary_key=True),
+    sa.Column("display_name", sa.Text, nullable=False),
+    sa.Column("category", sa.Text, nullable=False),
+    sa.Column("photo_url", sa.Text, nullable=True),
+    sa.Column("specs", JSONB, nullable=True),
+    sa.Column("provisioning_steps", JSONB, nullable=True),
+    sa.Column(
+        "created_at",
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+    ),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'active'")),
+)
+sa.Index("ix_hc_category", hardware_catalog.c.category)
+sa.Index("ix_hc_status", hardware_catalog.c.status)
+
+#: Registry of firmware VERSIONS. FK to hardware_catalog (both admin-managed, controlled creation
+#: order — real FK is safe here unlike contract-derived tables subject to NOTE F6).
+firmware_catalog = sa.Table(
+    "firmware_catalog",
+    metadata,
+    sa.Column("firmware_id", sa.Text, primary_key=True),
+    sa.Column(
+        "hardware_catalog_id",
+        sa.Text,
+        sa.ForeignKey("hardware_catalog.catalog_id"),
+        nullable=False,
+    ),
+    sa.Column("version", sa.Text, nullable=False),
+    sa.Column("changelog", sa.Text, nullable=True),
+    sa.Column("sidecar_schema_version", sa.Text, nullable=True),
+    sa.Column("binary_url", sa.Text, nullable=True),
+    sa.Column(
+        "released_at",
+        sa.DateTime(timezone=True),
+        nullable=True,
+        server_default=sa.func.now(),
+    ),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'testing'")),
+)
+sa.Index("ix_fc_hardware", firmware_catalog.c.hardware_catalog_id)
+sa.Index("ix_fc_status", firmware_catalog.c.status)
+
+#: Registry of kit CONFIGURATIONS (setup versions). Admin-managed via /admin/setups.
+setup_version = sa.Table(
+    "setup_version",
+    metadata,
+    sa.Column("setup_id", sa.Text, primary_key=True),
+    sa.Column("display_name", sa.Text, nullable=False),
+    sa.Column("components", JSONB, nullable=False),
+    sa.Column("constraints", JSONB, nullable=True),
+    sa.Column("contract", JSONB, nullable=True),
+    sa.Column(
+        "released_at",
+        sa.DateTime(timezone=True),
+        nullable=True,
+        server_default=sa.func.now(),
+    ),
+    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'testing'")),
+)
+sa.Index("ix_sv_status", setup_version.c.status)
+
+#: The V1 catalog tables (mutable, not audit — writer gets SELECT/INSERT/UPDATE, no DELETE).
+CATALOG_TABLES: tuple[str, ...] = (
+    "hardware_catalog",
+    "firmware_catalog",
+    "setup_version",
 )

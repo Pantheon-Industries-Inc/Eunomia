@@ -53,3 +53,8 @@ fields:
     required: warn
     nullable: true
     description: End of validity; null = the open/current binding (OQ-6).
+  - name: setup_version_id
+    type: string
+    required: warn
+    nullable: true
+    description: Setup configuration this kit is provisioned with (V1 catalog). Admin-set; null until assigned.

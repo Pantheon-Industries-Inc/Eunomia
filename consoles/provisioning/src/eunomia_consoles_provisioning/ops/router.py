@@ -49,10 +49,17 @@ async def overview(request: Request) -> HTMLResponse:
         stats = queries.overview_stats(conn)
         episodes = queries.recent_episodes(conn)
         anomalies = queries.anomaly_count(conn)
+        fw_summary = queries.firmware_summary(conn)
     return ops_templates.TemplateResponse(
         request,
         "overview.html",
-        _ctx(request, stats=stats, episodes=episodes, anomaly_count=anomalies),
+        _ctx(
+            request,
+            stats=stats,
+            episodes=episodes,
+            anomaly_count=anomalies,
+            firmware_summary=fw_summary,
+        ),
     )
 
 
