@@ -157,3 +157,18 @@ fields:
     type: bool
     required: warn
     description: episode_id pairing disagreed with the ordinal cross-check (C-12).
+
+  # ---- raw archive + firmware tracking (R4) ----
+  - name: sidecar_raw
+    type: object
+    required: warn
+    nullable: true
+    description: >
+      Complete raw sidecar JSON as received from the camera. Archived for reprocessing;
+      new firmware fields appear here automatically without schema changes. Promote to
+      typed columns when a consumer needs to query/index them.
+  - name: firmware_version
+    type: string
+    required: warn
+    nullable: true
+    description: Fob firmware build (provenance.fob_build from the sidecar). Typed column for querying/filtering episodes by firmware version.

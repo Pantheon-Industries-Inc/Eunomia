@@ -17,6 +17,15 @@
     <pre style="font-size:0.8rem;overflow-x:auto;background:#f8f9fa;padding:0.75rem;border-radius:4px">{{ episode | to_pretty_json }}</pre>
 </div>
 
+{% if episode.sidecar_raw %}
+<div class="card">
+    <details>
+        <summary><h2 style="display:inline">Raw Sidecar</h2></summary>
+        <pre style="font-size:0.8rem;overflow-x:auto;background:#f8f9fa;padding:0.75rem;border-radius:4px;margin-top:0.5rem">{{ episode.sidecar_raw | to_pretty_json }}</pre>
+    </details>
+</div>
+{% endif %}
+
 {% if footage_ref %}
 <div class="card">
     <h2>Footage Reference</h2>

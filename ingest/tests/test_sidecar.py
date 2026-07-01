@@ -140,6 +140,51 @@ def test_scan_drain_empty_dir(tmp_path: Path) -> None:
     assert result.footage_orphans == []
 
 
+def test_parse_sidecar_captures_raw_dict(drain_root: Path) -> None:
+    path = (
+        drain_root
+        / "kit_07"
+        / "DCIM"
+        / "100_INSTA"
+        / "VID_20260624_100000_042.eunomia.json"
+    )
+    record, _ = parse_sidecar(path)
+    assert record is not None
+    assert isinstance(record.raw, dict)
+    assert record.raw["schema"] == "eunomia-sidecar/v1"
+    assert record.raw["identity"]["kit_id"] == "kit_07"
+    assert record.raw["provenance"]["fob_build"] == "3.8.3"
+
+
+def test_raw_preserves_unknown_fields(tmp_path: Path) -> None:
+    sidecar = {
+        "schema": "eunomia-sidecar/v1",
+        "seq": 1,
+        "global_episode_seq": 1,
+        "identity": {
+            "camera_id": "c",
+            "kit_id": "k",
+            "side": "right",
+            "operator_id": "o",
+            "station_id": "s",
+            "task_id": "t",
+            "task_name": "n",
+            "session_id": "s",
+            "episode_id": "raw-test-uuid",
+            "rotation_id": "r",
+            "prompt": "p",
+            "task_source": "none",
+        },
+        "provenance": {"future_sensor": "lidar_v2"},
+        "files": {"back": "MISSING.insv"},
+    }
+    p = tmp_path / "raw.eunomia.json"
+    p.write_text(json.dumps(sidecar))
+    record, _ = parse_sidecar(p)
+    assert record is not None
+    assert record.raw["provenance"]["future_sensor"] == "lidar_v2"
+
+
 def test_sidecar_without_footage(tmp_path: Path) -> None:
     """Sidecar referencing a footage file that doesn't exist."""
     sidecar = {

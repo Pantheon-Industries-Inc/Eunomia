@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from eunomia_contracts import _semantics
 
@@ -35,6 +35,8 @@ class Episode:
     recording_suspect: int = 0
     pairing_method: str = ""
     pairing_anomaly: bool = False
+    sidecar_raw: dict = field(default_factory=dict)
+    firmware_version: str | None = None
 
 
 SCHEMA_ID = "eunomia-episode/v1"
@@ -69,6 +71,8 @@ _TABLES = _semantics.Tables(
         ("recording_suspect", "int"),
         ("pairing_method", "string"),
         ("pairing_anomaly", "bool"),
+        ("sidecar_raw", "object"),
+        ("firmware_version", "string"),
     ],
     enums={
         "pairing_method": ["episode_id", "ordinal_join", "needs_review"],
@@ -87,6 +91,8 @@ _TABLES = _semantics.Tables(
         "capture_stack_id",
         "ingested_at",
         "void_reason",
+        "sidecar_raw",
+        "firmware_version",
     ],
     cond_pattern="",
     cond_fields=[],

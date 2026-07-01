@@ -39,6 +39,13 @@
       "description": "The fob label ordinal (the label-join source).",
       "type": "integer"
     },
+    "firmware_version": {
+      "description": "Fob firmware build (provenance.fob_build from the sidecar). Typed column for querying/filtering episodes by firmware version.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "global_episode_seq": {
       "description": "NAND swap-proof monotonic ordinal \u2014 the PRIMARY ordering spine (card is not a unit).",
       "type": "integer"
@@ -114,6 +121,13 @@
       ],
       "minLength": 1,
       "type": "string"
+    },
+    "sidecar_raw": {
+      "description": "Complete raw sidecar JSON as received from the camera. Archived for reprocessing; new firmware fields appear here automatically without schema changes. Promote to typed columns when a consumer needs to query/index them.\n",
+      "type": [
+        "object",
+        "null"
+      ]
     },
     "station_id": {
       "description": "Station (from the fob trigger record, \u00a73.3).",

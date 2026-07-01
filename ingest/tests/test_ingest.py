@@ -152,6 +152,50 @@ def test_reimport_fob_log_idempotent(conn: Connection) -> None:
     assert store.count(conn, "session") == 1
 
 
+def test_drain_populates_sidecar_raw(conn: Connection) -> None:
+    drain_root = FIXTURES / "drain"
+    ingest_drain(drain_root, conn)
+
+    from eunomia_edge_store import store
+
+    ep = store.get(conn, "episode", episode_id="550e8400-e29b-41d4-a716-446655440000")
+    assert ep is not None
+    raw = ep["sidecar_raw"]
+    assert isinstance(raw, dict)
+    assert raw["schema"] == "eunomia-sidecar/v1"
+    assert raw["identity"]["kit_id"] == "kit_07"
+    assert raw["provenance"]["fob_build"] == "3.8.3"
+
+
+def test_drain_populates_firmware_version(conn: Connection) -> None:
+    drain_root = FIXTURES / "drain"
+    ingest_drain(drain_root, conn)
+
+    from eunomia_edge_store import store
+
+    ep = store.get(conn, "episode", episode_id="550e8400-e29b-41d4-a716-446655440000")
+    assert ep is not None
+    assert ep["firmware_version"] == "3.8.3"
+
+    ep2 = store.get(conn, "episode", episode_id="660e8400-e29b-41d4-a716-446655440001")
+    assert ep2 is not None
+    assert ep2["firmware_version"] is None
+
+
+def test_sidecar_raw_roundtrip_with_unknown_field(conn: Connection) -> None:
+    """Store a sidecar with an unknown field and verify it survives the JSONB round-trip."""
+    drain_root = FIXTURES / "drain"
+    ingest_drain(drain_root, conn)
+
+    from eunomia_edge_store import store
+
+    ep = store.get(conn, "episode", episode_id="550e8400-e29b-41d4-a716-446655440000")
+    assert ep is not None
+    raw = ep["sidecar_raw"]
+    assert raw["record_format_version"] == 3
+    assert raw["timing"]["started_unix"] == 1750000000.5
+
+
 def test_recording_suspect_flagged(conn: Connection) -> None:
     drain_root = FIXTURES / "drain"
     report = ingest_drain(drain_root, conn)
