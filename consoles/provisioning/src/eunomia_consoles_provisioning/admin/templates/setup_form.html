@@ -1,0 +1,64 @@
+{% extends "admin_base.html" %}
+{% block title %}Admin — {% if item %}Edit{% else %}New{% endif %} Setup{% endblock %}
+{% block sub_setups %}active{% endblock %}
+{% block content %}
+<a href="/admin/setups" class="back-link">&larr; Back to Setup Versions</a>
+
+<h1>{% if item %}Edit {{ item.setup_id }}{% else %}New Setup Version{% endif %}</h1>
+
+{% if error %}
+<div class="error">{{ error }}</div>
+{% endif %}
+
+{% if item and kit_count is defined and kit_count > 0 %}
+<div class="card" style="background:#fff3cd;border-color:#ffecb5;">
+    <p style="font-size:0.85rem;"><strong>In use by {{ kit_count }} kit{{ 's' if kit_count != 1 }}.</strong> Changes will affect future episodes collected under this setup.</p>
+</div>
+{% endif %}
+
+<div class="card">
+    <form method="post" action="{% if item %}/admin/setups/{{ item.setup_id }}{% else %}/admin/setups{% endif %}">
+        {% if not item %}
+        <label for="setup_id">Setup ID</label>
+        <input type="text" id="setup_id" name="setup_id" required placeholder="umi-bimanual-v1" pattern="[a-z0-9][a-z0-9\-]*">
+        <p class="text-muted" style="margin-top:-0.5rem;margin-bottom:0.75rem;">Lowercase letters, numbers, and hyphens only.</p>
+        {% endif %}
+
+        <label for="display_name">Display Name</label>
+        <input type="text" id="display_name" name="display_name" required value="{{ item.display_name if item else '' }}" placeholder="UMI Bimanual (2 wrist cams)">
+
+        <label for="components">Components (JSON array)</label>
+        <textarea id="components" name="components" rows="6" placeholder='[
+  {"role": "left_wrist_cam", "catalog_id": "insta360-x3", "required": true},
+  {"role": "right_wrist_cam", "catalog_id": "insta360-x3", "required": true},
+  {"role": "fob", "catalog_id": "cyd-esp32-2432s028", "required": true}
+]'>{{ item.components | tojson(indent=2) if item and item.components else '' }}</textarea>
+
+        {% if hardware %}
+        <p class="text-muted" style="margin-top:-0.5rem;margin-bottom:0.75rem;">
+            Available hardware IDs:
+            {% for hw in hardware %}
+                <code>{{ hw.catalog_id }}</code>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+        </p>
+        {% endif %}
+
+        <label for="constraints">Constraints (JSON, optional)</label>
+        <textarea id="constraints" name="constraints" placeholder='{"min_cameras": 2, "max_cameras": 4, "sidecar_streams_per_episode": 2}'>{{ item.constraints | tojson(indent=2) if item and item.constraints else '' }}</textarea>
+
+        <label for="contract">Contract (JSON, optional)</label>
+        <textarea id="contract" name="contract" placeholder='{"sidecar_must_include": ["episode_id", "camera_id"], "qc_must_include": ["stream_integrity"]}'>{{ item.contract | tojson(indent=2) if item and item.contract else '' }}</textarea>
+
+        {% if item %}
+        <label for="status">Status</label>
+        <select id="status" name="status">
+            <option value="testing" {% if item.status == 'testing' %}selected{% endif %}>testing</option>
+            <option value="active" {% if item.status == 'active' %}selected{% endif %}>active</option>
+            <option value="deprecated" {% if item.status == 'deprecated' %}selected{% endif %}>deprecated</option>
+        </select>
+        {% endif %}
+
+        <button type="submit" class="btn-primary">{% if item %}Save Changes{% else %}Create{% endif %}</button>
+    </form>
+</div>
+{% endblock %}

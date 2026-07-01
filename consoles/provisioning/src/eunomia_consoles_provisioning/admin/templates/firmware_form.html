@@ -1,0 +1,60 @@
+{% extends "admin_base.html" %}
+{% block title %}Admin — {% if item %}Edit{% else %}New{% endif %} Firmware{% endblock %}
+{% block sub_firmware %}active{% endblock %}
+{% block content %}
+<a href="/admin/firmware" class="back-link">&larr; Back to Firmware Catalog</a>
+
+<h1>{% if item %}Edit {{ item.firmware_id }}{% else %}New Firmware Version{% endif %}</h1>
+
+{% if error %}
+<div class="error">{{ error }}</div>
+{% endif %}
+
+{% if not hardware and not item %}
+<div class="card empty">
+    <p>No hardware types available. <a href="/admin/hardware/new">Add a hardware type</a> first.</p>
+</div>
+{% else %}
+<div class="card">
+    <form method="post" action="{% if item %}/admin/firmware/{{ item.firmware_id }}{% else %}/admin/firmware{% endif %}">
+        {% if not item %}
+        <label for="firmware_id">Firmware ID</label>
+        <input type="text" id="firmware_id" name="firmware_id" required placeholder="eunomia-coordinator-r1" pattern="[a-z0-9][a-z0-9\-]*">
+        <p class="text-muted" style="margin-top:-0.5rem;margin-bottom:0.75rem;">Lowercase letters, numbers, and hyphens only.</p>
+
+        <label for="hardware_catalog_id">Hardware Type</label>
+        <select id="hardware_catalog_id" name="hardware_catalog_id" required>
+            {% for hw in hardware %}
+            <option value="{{ hw.catalog_id }}">{{ hw.display_name }} ({{ hw.catalog_id }})</option>
+            {% endfor %}
+        </select>
+        {% else %}
+        <p class="text-muted" style="margin-bottom:0.75rem;">Hardware: {{ item.hardware_name or item.hardware_catalog_id }}</p>
+        {% endif %}
+
+        <label for="version">Version</label>
+        <input type="text" id="version" name="version" required value="{{ item.version if item else '' }}" placeholder="r1">
+
+        <label for="changelog">Changelog</label>
+        <textarea id="changelog" name="changelog" placeholder="What changed in this version...">{{ item.changelog or '' }}</textarea>
+
+        <label for="sidecar_schema_version">Sidecar Schema Version</label>
+        <input type="text" id="sidecar_schema_version" name="sidecar_schema_version" value="{{ item.sidecar_schema_version or '' }}" placeholder="eunomia-sidecar/v1">
+
+        <label for="binary_url">Binary URL</label>
+        <input type="text" id="binary_url" name="binary_url" value="{{ item.binary_url or '' }}" placeholder="https://...firmware.bin">
+
+        {% if item %}
+        <label for="status">Status</label>
+        <select id="status" name="status">
+            <option value="testing" {% if item.status == 'testing' %}selected{% endif %}>testing</option>
+            <option value="released" {% if item.status == 'released' %}selected{% endif %}>released</option>
+            <option value="deprecated" {% if item.status == 'deprecated' %}selected{% endif %}>deprecated</option>
+        </select>
+        {% endif %}
+
+        <button type="submit" class="btn-primary">{% if item %}Save Changes{% else %}Create{% endif %}</button>
+    </form>
+</div>
+{% endif %}
+{% endblock %}

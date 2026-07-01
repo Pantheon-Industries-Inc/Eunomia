@@ -28,6 +28,7 @@ class Identity:
     record_settings: str = ""
     mount: str = ""
     assignment_source: str = ""
+    setup_version_id: str | None = None
 
 
 @dataclass
@@ -103,6 +104,7 @@ _TABLES = _semantics.Tables(
         ("identity.record_settings", "string"),
         ("identity.mount", "string"),
         ("identity.assignment_source", "string"),
+        ("identity.setup_version_id", "string"),
         ("timing", "object"),
         ("timing.started_unix", "number"),
         ("timing.stopped_unix", "number"),
@@ -140,6 +142,7 @@ _TABLES = _semantics.Tables(
     ],
     nullable=[
         "identity.calibration_id",
+        "identity.setup_version_id",
         "timing.camera_clock",
     ],
     cond_pattern="^eunomia-sidecar/v[1-9][0-9]*$",

@@ -33,6 +33,7 @@ async def inspect_episodes(
     kit_id: str | None = Query(default=None),
     task_id: str | None = Query(default=None),
     operator_id: str | None = Query(default=None),
+    setup_version_id: str | None = Query(default=None),
     offset: int = Query(default=0, ge=0),
 ) -> HTMLResponse:
     conn = get_conn()
@@ -48,6 +49,7 @@ async def inspect_episodes(
             kit_id=kit_id,
             task_id=task_id,
             operator_id=operator_id,
+            setup_version_id=setup_version_id,
         )
     return _templates.TemplateResponse(
         request,
@@ -59,6 +61,7 @@ async def inspect_episodes(
             q_kit_id=kit_id or "",
             q_task_id=task_id or "",
             q_operator_id=operator_id or "",
+            q_setup_version_id=setup_version_id or "",
             offset=offset,
             limit=limit,
             has_more=len(episodes) == limit,

@@ -14,6 +14,7 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.engine import Connection
 
+from eunomia_edge_store import schema as store_schema
 from eunomia_edge_store.schema import TABLES
 
 FPS = 30
@@ -334,10 +335,15 @@ def kit_list(conn: Connection) -> list[dict[str, Any]]:
 def kit_detail(conn: Connection, kit_id: str) -> dict[str, Any] | None:
     kit = TABLES["kit"]
     hu = TABLES["hardware_unit"]
+    sv = store_schema.setup_version
+    hc = store_schema.hardware_catalog
 
     hu_l = hu.alias("hu_l")
     hu_r = hu.alias("hu_r")
     hu_f = hu.alias("hu_f")
+    hc_l = hc.alias("hc_l")
+    hc_r = hc.alias("hc_r")
+    hc_f = hc.alias("hc_f")
 
     stmt = (
         sa.select(
@@ -345,13 +351,22 @@ def kit_detail(conn: Connection, kit_id: str) -> dict[str, Any] | None:
             kit.c.left_cam_unit_id,
             kit.c.right_cam_unit_id,
             kit.c.fob_unit_id,
+            kit.c.setup_version_id,
             hu_l.c.camera_id.label("left_camera_id"),
             hu_r.c.camera_id.label("right_camera_id"),
             hu_f.c.fob_id,
+            sv.c.display_name.label("setup_version_name"),
+            hc_l.c.display_name.label("left_cam_hardware"),
+            hc_r.c.display_name.label("right_cam_hardware"),
+            hc_f.c.display_name.label("fob_hardware"),
         )
         .outerjoin(hu_l, kit.c.left_cam_unit_id == hu_l.c.unit_id)
         .outerjoin(hu_r, kit.c.right_cam_unit_id == hu_r.c.unit_id)
         .outerjoin(hu_f, kit.c.fob_unit_id == hu_f.c.unit_id)
+        .outerjoin(sv, kit.c.setup_version_id == sv.c.setup_id)
+        .outerjoin(hc_l, hu_l.c.hardware_catalog_id == hc_l.c.catalog_id)
+        .outerjoin(hc_r, hu_r.c.hardware_catalog_id == hc_r.c.catalog_id)
+        .outerjoin(hc_f, hu_f.c.hardware_catalog_id == hc_f.c.catalog_id)
         .where(kit.c.kit_id == kit_id)
     )
     row = conn.execute(stmt).mappings().first()
@@ -696,3 +711,23 @@ def anomaly_feed(
         }
         for r in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Firmware summary (V1)
+# ---------------------------------------------------------------------------
+
+
+def firmware_summary(conn: Connection) -> list[dict[str, Any]]:
+    ep = TABLES["episode"]
+    stmt = (
+        sa.select(
+            ep.c.firmware_version,
+            sa.func.count().label("count"),
+        )
+        .where(ep.c.firmware_version.is_not(None))
+        .group_by(ep.c.firmware_version)
+        .order_by(sa.desc("count"))
+        .limit(10)
+    )
+    return [dict(r) for r in conn.execute(stmt).mappings().all()]

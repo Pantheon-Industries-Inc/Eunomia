@@ -114,6 +114,11 @@ fields:
     required: warn
     nullable: true
     description: Mount config (cameras) — promoted from sidecar-only into the per-unit registry profile.
+  - name: hardware_catalog_id
+    type: string
+    required: warn
+    nullable: true
+    description: Reference to hardware_catalog.catalog_id (V1 catalog). Admin-set; null until cataloged.
   - name: provisioning
     type: object
     required: warn

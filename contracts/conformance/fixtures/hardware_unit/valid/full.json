@@ -11,6 +11,7 @@
   "status": "deployed",
   "kit_id": "kit_07",
   "side": "left",
+  "hardware_catalog_id": "insta360-x3",
   "provisioning": {
     "wifi_ssid": "kit07-ap",
     "wifi_ap": "X3_AP_kit07",

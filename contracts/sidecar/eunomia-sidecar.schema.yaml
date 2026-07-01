@@ -144,6 +144,11 @@ fields:
         type: string
         required: warn
         description: Assignment provenance.
+      - name: setup_version_id
+        type: string
+        required: warn
+        nullable: true
+        description: Setup configuration this episode was recorded under (V1 catalog). Null until fob firmware writes it.
 
   # ---- timing group (nested, WARN object; camera clock is provenance-only / poison) ----
   - name: timing

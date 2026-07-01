@@ -6,11 +6,14 @@
 
 <h1>Kit {{ kit.kit_id }}</h1>
 <p class="text-muted">
-    Left cam: {{ kit.left_camera_id or '—' }} &middot;
-    Right cam: {{ kit.right_camera_id or '—' }} &middot;
-    Fob: {{ kit.fob_id or '—' }}
+    Left cam: {{ kit.left_camera_id or '—' }}{% if kit.left_cam_hardware %} <span class="badge badge-muted">{{ kit.left_cam_hardware }}</span>{% endif %} &middot;
+    Right cam: {{ kit.right_camera_id or '—' }}{% if kit.right_cam_hardware %} <span class="badge badge-muted">{{ kit.right_cam_hardware }}</span>{% endif %} &middot;
+    Fob: {{ kit.fob_id or '—' }}{% if kit.fob_hardware %} <span class="badge badge-muted">{{ kit.fob_hardware }}</span>{% endif %}
 </p>
 <p style="margin-top: 0.5rem;">Current operator: <strong>{{ current_operator or '—' }}</strong></p>
+<p style="margin-top: 0.25rem;" class="text-muted">
+    Setup: {{ kit.setup_version_name or '—' }}{% if kit.setup_version_id %} (<code>{{ kit.setup_version_id }}</code>){% endif %}
+</p>
 
 <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 1rem;">
     <div class="stat-card">

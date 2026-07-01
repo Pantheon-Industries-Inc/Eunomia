@@ -127,5 +127,8 @@ def test_all_tables_compile_to_postgresql_ddl() -> None:
         *schema.TABLES.values(),
         schema.camera_id_ledger,
         schema.import_backup,
+        schema.hardware_catalog,
+        schema.firmware_catalog,
+        schema.setup_version,
     ):
         CreateTable(table).compile(dialect=pg)

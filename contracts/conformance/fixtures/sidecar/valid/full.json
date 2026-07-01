@@ -18,6 +18,7 @@
     "record_settings": "3K100_fsoff_audioon",
     "rotation_id": "r2",
     "session_id": "sess_xyz",
+    "setup_version_id": "umi-bimanual-v1",
     "side": "left",
     "station_id": "5",
     "task_id": "t_fold",

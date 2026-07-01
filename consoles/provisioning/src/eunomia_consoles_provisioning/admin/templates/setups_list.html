@@ -1,0 +1,61 @@
+{% extends "admin_base.html" %}
+{% block title %}Admin — Setup Versions{% endblock %}
+{% block sub_setups %}active{% endblock %}
+{% block content %}
+<h1>Setup Versions</h1>
+
+{% if items %}
+<div class="card">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Components</th>
+                    <th>In Use</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td><code>{{ item.setup_id }}</code></td>
+                    <td>{{ item.display_name }}</td>
+                    <td>
+                        {% if item.components %}
+                            {% for c in item.components %}
+                                <span class="badge badge-muted">{{ c.role if c is mapping and c.role is defined else c }}</span>
+                            {% endfor %}
+                        {% else %}—{% endif %}
+                    </td>
+                    <td>
+                        {% set count = kit_counts.get(item.setup_id, 0) %}
+                        {% if count > 0 %}<span class="badge badge-ok">{{ count }} kit{{ 's' if count != 1 }}</span>
+                        {% else %}<span class="text-muted">0</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if item.status == 'active' %}<span class="badge badge-ok">active</span>
+                        {% elif item.status == 'testing' %}<span class="badge badge-warn">testing</span>
+                        {% elif item.status == 'deprecated' %}<span class="badge badge-danger">deprecated</span>
+                        {% else %}<span class="badge badge-muted">{{ item.status }}</span>{% endif %}
+                    </td>
+                    <td><a href="/admin/setups/{{ item.setup_id }}/edit">Edit</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card empty">
+    <p>No setup versions defined.</p>
+    <p style="margin-top:0.5rem;"><a href="/admin/setups/new" class="btn-primary" style="display:inline-block;padding:0.5rem 1.25rem;border-radius:4px;text-decoration:none;color:#fff;">Create your first setup version</a></p>
+</div>
+{% endif %}
+
+{% if items %}
+<a href="/admin/setups/new" class="btn-primary" style="display:inline-block;padding:0.5rem 1.25rem;border-radius:4px;text-decoration:none;color:#fff;">Create setup version</a>
+{% endif %}
+{% endblock %}

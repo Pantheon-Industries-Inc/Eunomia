@@ -172,3 +172,10 @@ fields:
     required: warn
     nullable: true
     description: Fob firmware build (provenance.fob_build from the sidecar). Typed column for querying/filtering episodes by firmware version.
+
+  # ---- setup versioning (V1) ----
+  - name: setup_version_id
+    type: string
+    required: warn
+    nullable: true
+    description: Setup configuration this episode was recorded under (V1 catalog). Null until fob firmware writes setup_version_id.

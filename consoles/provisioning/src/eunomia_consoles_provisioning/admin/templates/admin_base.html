@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Ops Dashboard{% endblock %}</title>
+    <title>{% block title %}Admin{% endblock %}</title>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -19,11 +19,6 @@
         .sub-nav a:hover { background: #e9ecef; color: #212529; }
         .sub-nav a.active { background: #212529; color: #fff; border-color: #212529; }
         .card { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
-        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 1.5rem; }
-        .stat-card { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 1rem; text-align: center; }
-        .stat-card .value { font-size: 1.75rem; font-weight: 700; color: #212529; }
-        .stat-card .label { font-size: 0.8rem; color: #6c757d; margin-top: 0.25rem; }
-        .stat-card .sub { font-size: 0.75rem; color: #adb5bd; margin-top: 0.25rem; }
         table { width: 100%; border-collapse: collapse; }
         th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #dee2e6; font-size: 0.85rem; }
         th { font-weight: 600; background: #f8f9fa; position: sticky; top: 0; }
@@ -31,29 +26,25 @@
         a { color: #0d6efd; text-decoration: none; }
         a:hover { text-decoration: underline; }
         .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.75rem; font-weight: 600; }
+        .badge-ok { background: #d1e7dd; color: #0f5132; }
         .badge-warn { background: #fff3cd; color: #856404; }
         .badge-danger { background: #f8d7da; color: #842029; }
-        .badge-ok { background: #d1e7dd; color: #0f5132; }
+        .badge-muted { background: #e9ecef; color: #6c757d; }
+        .empty { color: #6c757d; font-style: italic; padding: 2rem; text-align: center; }
         .back-link { display: inline-block; margin-bottom: 1rem; font-size: 0.85rem; }
         .table-wrap { overflow-x: auto; }
-        .empty { color: #6c757d; font-style: italic; padding: 2rem; text-align: center; }
-        .bar { height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; }
-        .bar-fill { height: 100%; background: #212529; border-radius: 4px; }
         label { display: block; font-weight: 500; margin-bottom: 0.25rem; font-size: 0.9rem; }
-        select { padding: 0.4rem; border: 1px solid #ced4da; border-radius: 4px; font-size: 0.85rem; margin-right: 0.5rem; }
-        .filters { display: flex; gap: 0.75rem; margin-bottom: 1rem; align-items: end; flex-wrap: wrap; }
-        .filters .field { display: flex; flex-direction: column; }
+        input, select, textarea { width: 100%; padding: 0.5rem; border: 1px solid #ced4da; border-radius: 4px; font-size: 0.85rem; margin-bottom: 0.75rem; font-family: inherit; }
+        textarea { min-height: 80px; resize: vertical; }
         button { padding: 0.5rem 1.25rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; font-weight: 500; }
         .btn-primary { background: #212529; color: #fff; }
         .btn-primary:hover { background: #495057; }
-        .text-muted { color: #6c757d; }
-        .pass { color: #198754; font-weight: 600; }
-        .fail { color: #dc3545; font-weight: 600; }
-        .warn { color: #fd7e14; font-weight: 600; }
+        .error { background: #f8d7da; border: 1px solid #f1aeb5; color: #842029; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.85rem; }
+        .text-muted { color: #6c757d; font-size: 0.8rem; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
         @media (max-width: 700px) {
-            .stats-grid { grid-template-columns: 1fr 1fr; }
+            .grid-2 { grid-template-columns: 1fr; }
             body { padding: 0.5rem; }
-            th, td { padding: 0.35rem 0.25rem; font-size: 0.8rem; }
         }
     </style>
 </head>
@@ -63,20 +54,13 @@
         <a href="/provision">Provision</a>
         <a href="/roster">Roster</a>
         <a href="/ship-gate">Ship Gate</a>
-        <a href="/ops/" class="active">Ops</a>
-        <a href="/admin/">Admin</a>
+        <a href="/ops/">Ops</a>
+        <a href="/admin/" class="active">Admin</a>
     </nav>
     <div class="sub-nav">
-        <a href="/ops/" class="{% block sub_overview %}{% endblock %}">Overview</a>
-        <a href="/ops/operators" class="{% block sub_operators %}{% endblock %}">Operators</a>
-        <a href="/ops/kits" class="{% block sub_kits %}{% endblock %}">Kits</a>
-        <a href="/ops/tasks" class="{% block sub_tasks %}{% endblock %}">Tasks</a>
-        <a href="/ops/anomalies" class="{% block sub_anomalies %}{% endblock %}">Anomalies</a>
-        <a href="/ops/review" class="{% block sub_review %}{% endblock %}">Review</a>
-        <a href="/ops/pipeline" class="{% block sub_pipeline %}{% endblock %}">Pipeline</a>
-        <a href="/ops/infra" class="{% block sub_infra %}{% endblock %}">Infra</a>
-        <a href="/ops/inspect/episodes" class="{% block sub_inspect %}{% endblock %}">Inspect</a>
-        <a href="/ops/import" class="{% block sub_import %}{% endblock %}">Import</a>
+        <a href="/admin/hardware" class="{% block sub_hardware %}{% endblock %}">Hardware</a>
+        <a href="/admin/firmware" class="{% block sub_firmware %}{% endblock %}">Firmware</a>
+        <a href="/admin/setups" class="{% block sub_setups %}{% endblock %}">Setups</a>
     </div>
     {% block content %}{% endblock %}
 </body>

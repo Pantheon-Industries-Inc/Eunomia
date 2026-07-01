@@ -23,6 +23,7 @@ def episode_list(
     kit_id: str | None = None,
     task_id: str | None = None,
     operator_id: str | None = None,
+    setup_version_id: str | None = None,
 ) -> list[dict[str, Any]]:
     ep = TABLES["episode"]
     person = TABLES["person"]
@@ -37,6 +38,8 @@ def episode_list(
         wheres.append(ep.c.task_id == task_id)
     if operator_id:
         wheres.append(ep.c.person_id == operator_id)
+    if setup_version_id:
+        wheres.append(ep.c.setup_version_id == setup_version_id)
 
     stmt = (
         sa.select(

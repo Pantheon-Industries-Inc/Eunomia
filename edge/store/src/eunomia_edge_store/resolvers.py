@@ -59,16 +59,35 @@ REFERENCES: dict[str, tuple[Reference, ...]] = {
         Reference(("left_cam_unit_id",), "hardware_unit", ("unit_id",)),
         Reference(("right_cam_unit_id",), "hardware_unit", ("unit_id",)),
         Reference(("fob_unit_id",), "hardware_unit", ("unit_id",)),
+        Reference(("setup_version_id",), "setup_version", ("setup_id",)),
     ),
-    "hardware_unit": (Reference(("kit_id",), "kit", ("kit_id",)),),
+    "hardware_unit": (
+        Reference(("kit_id",), "kit", ("kit_id",)),
+        Reference(("hardware_catalog_id",), "hardware_catalog", ("catalog_id",)),
+    ),
     "capture_stack": (Reference(("kit_id",), "kit", ("kit_id",)),),
     "footage_reference": (Reference(("episode_id",), "episode", ("episode_id",)),),
     "task_station_assignment": (Reference(("task_id",), "task", ("task_id",)),),
 }
 
 
+_NATIVE_TABLES: dict[str, sa.Table] = {
+    "hardware_catalog": schema.hardware_catalog,
+    "firmware_catalog": schema.firmware_catalog,
+    "setup_version": schema.setup_version,
+}
+
+
+def _resolve_table(name: str) -> sa.Table:
+    if name in schema.TABLES:
+        return schema.TABLES[name]
+    if name in _NATIVE_TABLES:
+        return _NATIVE_TABLES[name]
+    raise KeyError(f"Unknown table: {name}")
+
+
 def _exists(conn: Connection, target: str, key: dict[str, Any]) -> bool:
-    table = schema.TABLES[target]
+    table = _resolve_table(target)
     where = [table.c[name] == value for name, value in key.items()]
     return (
         conn.execute(sa.select(sa.literal(1)).where(*where).limit(1)).first()

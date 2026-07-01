@@ -17,6 +17,7 @@ from sqlalchemy.engine import Connection, Engine
 
 from eunomia_consoles_provisioning import ship_gate, site
 from eunomia_consoles_provisioning.fob import parse_status
+from eunomia_consoles_provisioning.admin.router import admin_router
 from eunomia_consoles_provisioning.ops.router import ops_router
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ app = FastAPI(title="Eunomia Provisioning Console", version="0.0.0", lifespan=li
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 app.include_router(ops_router)
+app.include_router(admin_router)
 
 
 def get_conn() -> Any:

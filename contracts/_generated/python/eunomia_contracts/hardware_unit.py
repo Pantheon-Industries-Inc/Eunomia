@@ -33,6 +33,7 @@ class HardwareUnit:
     fob_id: str | None = None
     board: str | None = None
     mount: str | None = None
+    hardware_catalog_id: str | None = None
     provisioning: Provisioning = field(default_factory=Provisioning)
 
 
@@ -58,6 +59,7 @@ _TABLES = _semantics.Tables(
         ("fob_id", "string"),
         ("board", "string"),
         ("mount", "string"),
+        ("hardware_catalog_id", "string"),
         ("provisioning", "object"),
         ("provisioning.wifi_ssid", "string"),
         ("provisioning.wifi_ap", "string"),
@@ -84,6 +86,7 @@ _TABLES = _semantics.Tables(
         "fob_id",
         "board",
         "mount",
+        "hardware_catalog_id",
     ],
     cond_pattern="",
     cond_fields=[],
