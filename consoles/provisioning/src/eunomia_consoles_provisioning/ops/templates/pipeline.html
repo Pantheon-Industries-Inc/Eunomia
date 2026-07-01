@@ -1,0 +1,108 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — Pipeline Health{% endblock %}
+{% block sub_pipeline %}active{% endblock %}
+{% block content %}
+<h1>Pipeline Health</h1>
+
+<div class="filters">
+    <div class="field">
+        <label for="range">Time range</label>
+        <select id="range" onchange="location.href='/ops/pipeline?range='+this.value">
+            <option value="today" {% if range == 'today' %}selected{% endif %}>Today</option>
+            <option value="week" {% if range == 'week' %}selected{% endif %}>This week</option>
+            <option value="month" {% if range == 'month' %}selected{% endif %}>This month</option>
+            <option value="all" {% if range == 'all' %}selected{% endif %}>All time</option>
+        </select>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Pipeline Funnel</h2>
+    {% set total = health.total_episodes or 1 %}
+    {% set steps = [
+        ("Recorded", health.total_episodes),
+        ("Ingested", health.ingested),
+        ("Normalized", health.normalized),
+        ("QC Complete", health.qc_complete),
+        ("Synced", health.synced),
+    ] %}
+    <table>
+        <thead><tr><th>Stage</th><th style="width:50%">Progress</th><th style="text-align:right">Count</th><th style="text-align:right">%</th></tr></thead>
+        <tbody>
+        {% for label, count in steps %}
+        <tr>
+            <td>{{ label }}</td>
+            <td>
+                <div class="bar" style="width:100%">
+                    <div class="bar-fill" style="width:{{ (count / total * 100)|round(1) }}%"></div>
+                </div>
+            </td>
+            <td style="text-align:right">{{ count }}</td>
+            <td style="text-align:right">{{ (count / total * 100)|round(1) }}%</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h2>Per-step Latency</h2>
+    {% set latencies = [
+        ("Drain to Ingest", health.median_drain_to_ingest_min),
+        ("Ingest to Normalize", health.median_ingest_to_normalize_min),
+        ("Normalize to QC", health.median_normalize_to_qc_min),
+        ("QC to Sync", health.median_qc_to_sync_min),
+    ] %}
+    <table>
+        <thead><tr><th>Step</th><th style="text-align:right">Median (min)</th></tr></thead>
+        <tbody>
+        {% for label, val in latencies %}
+        <tr>
+            <td>{{ label }}</td>
+            <td style="text-align:right">{% if val is not none %}{{ val }}{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h2>End-to-end: Recording to Verdict</h2>
+    <div class="stats-grid" style="grid-template-columns: 1fr 1fr;">
+        <div class="stat-card">
+            <div class="value">{% if health.median_recording_to_verdict_min is not none %}{{ health.median_recording_to_verdict_min }}{% else %}&mdash;{% endif %}</div>
+            <div class="label">Median (min)</div>
+        </div>
+        <div class="stat-card">
+            <div class="value">{% if health.p95_recording_to_verdict_min is not none %}{{ health.p95_recording_to_verdict_min }}{% else %}&mdash;{% endif %}</div>
+            <div class="label">P95 (min)</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Pipeline Stalls</h2>
+    {% set stall_labels = {
+        "awaiting_ingest": "Recorded, not ingested",
+        "awaiting_normalize": "Ingested, not normalized",
+        "awaiting_qc": "Normalized, not QC'd",
+        "awaiting_sync": "QC'd, not synced",
+    } %}
+    <table>
+        <thead><tr><th>Stage</th><th style="text-align:right">Count</th><th style="text-align:right">Oldest</th></tr></thead>
+        <tbody>
+        {% for s in stalls %}
+        <tr>
+            <td>{{ stall_labels.get(s.stage, s.stage) }}</td>
+            <td style="text-align:right">
+                {% if s.count > 0 %}<span class="badge badge-warn">{{ s.count }}</span>{% else %}0{% endif %}
+            </td>
+            <td style="text-align:right">
+                {% if s.oldest %}{{ s.oldest.strftime('%Y-%m-%d %H:%M') }}{% else %}<span class="text-muted">&mdash;</span>{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

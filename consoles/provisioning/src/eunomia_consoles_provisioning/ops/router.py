@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -203,6 +204,34 @@ async def anomalies_page(
             limit=limit,
             has_more=len(anomalies) == limit,
         ),
+    )
+
+
+@ops_router.get("/pipeline", response_class=HTMLResponse)
+async def pipeline_page(
+    request: Request,
+    time_range: str = Query(default="week", alias="range"),
+) -> HTMLResponse:
+    conn = get_conn()
+    if conn is None:
+        return ops_templates.TemplateResponse(
+            request, "unavailable.html", _ctx(request)
+        )
+    periods = queries._period_starts()
+    since_map = {
+        "today": periods["today"],
+        "week": periods["week"],
+        "month": periods["month"],
+        "all": datetime(2020, 1, 1, tzinfo=UTC),
+    }
+    since = since_map.get(time_range, periods["week"])
+    with conn:
+        health = queries.pipeline_health(conn, since)
+        stalls = queries.pipeline_stalls(conn)
+    return ops_templates.TemplateResponse(
+        request,
+        "pipeline.html",
+        _ctx(request, health=health, stalls=stalls, range=time_range),
     )
 
 
