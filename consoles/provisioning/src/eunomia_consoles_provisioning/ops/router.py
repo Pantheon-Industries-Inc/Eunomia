@@ -14,6 +14,7 @@ from eunomia_consoles_provisioning.ops import queries
 from eunomia_consoles_provisioning.ops.db import get_conn
 from eunomia_consoles_provisioning.ops.import_router import import_router
 from eunomia_consoles_provisioning.ops.inspect_router import inspect_router
+from eunomia_consoles_provisioning.ops.review_router import mount_media, review_router
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -22,6 +23,8 @@ ops_templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 ops_router.include_router(inspect_router)
 ops_router.include_router(import_router)
+ops_router.include_router(review_router)
+mount_media(ops_router)
 
 
 def _ctx(request: Request, **kwargs: Any) -> dict[str, Any]:

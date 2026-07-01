@@ -1,0 +1,276 @@
+{% extends "ops_base.html" %}
+{% block title %}Review — {{ display_id or episode_id[:20] }}{% endblock %}
+{% block sub_review %}active{% endblock %}
+{% block content %}
+<style>
+    .review-nav { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+    .review-nav .nav-btn { font-size: 0.85rem; padding: 0.3rem 0.75rem; background: #fff; border: 1px solid #dee2e6; border-radius: 4px; cursor: pointer; color: #212529; text-decoration: none; }
+    .review-nav .nav-btn:hover { background: #e9ecef; text-decoration: none; }
+    .review-nav .nav-btn.disabled { opacity: 0.4; pointer-events: none; }
+    .review-nav .ep-title { font-weight: 600; font-size: 1rem; flex: 1; }
+
+    .review-grid { display: grid; grid-template-columns: 1fr 380px; gap: 1.25rem; align-items: start; }
+    @media (max-width: 900px) { .review-grid { grid-template-columns: 1fr; } }
+
+    .video-panel .player-wrap { background: #000; border-radius: 8px; overflow: hidden; margin-bottom: 0.75rem; }
+    .video-panel video { display: block; width: 100%; max-height: 500px; background: #000; }
+    .video-panel .no-video { padding: 3rem; text-align: center; color: #6c757d; background: #e9ecef; border-radius: 8px; }
+    .video-panel .speed-bar { display: flex; gap: 0.25rem; margin-bottom: 0.75rem; }
+    .video-panel .speed-btn { font-size: 0.75rem; padding: 0.2rem 0.5rem; background: #fff; border: 1px solid #dee2e6; border-radius: 4px; cursor: pointer; }
+    .video-panel .speed-btn.active { background: #212529; color: #fff; border-color: #212529; }
+
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem 1rem; font-size: 0.85rem; }
+    .meta-grid dt { color: #6c757d; }
+    .meta-grid dd { margin: 0; font-weight: 500; }
+
+    .qc-panel { max-height: calc(100vh - 100px); overflow-y: auto; }
+    .verdict-header { padding: 0.75rem; border-radius: 8px; margin-bottom: 0.75rem; text-align: center; }
+    .verdict-header.accept { background: #d1e7dd; }
+    .verdict-header.review { background: #fff3cd; }
+    .verdict-header.reject { background: #f8d7da; }
+    .verdict-header .verdict-text { font-size: 1.2rem; font-weight: 700; }
+    .verdict-header .verdict-score { font-size: 0.85rem; color: #495057; }
+
+    .check-section { margin-bottom: 0.75rem; }
+    .check-section h3 { font-size: 0.85rem; color: #6c757d; margin-bottom: 0.5rem; border-bottom: 1px solid #dee2e6; padding-bottom: 0.25rem; }
+    .check-item { padding: 0.5rem 0; border-bottom: 1px solid #f0f0f0; }
+    .check-item:last-child { border-bottom: none; }
+    .check-name { font-weight: 600; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; }
+    .check-name .icon-fail { color: #dc3545; }
+    .check-name .icon-pass { color: #198754; }
+    .check-name .icon-na { color: #6c757d; }
+    .check-when { margin-top: 0.25rem; font-size: 0.8rem; }
+    .check-when .ts-link { color: #0d6efd; cursor: pointer; font-family: monospace; font-weight: 500; }
+    .check-when .ts-link:hover { text-decoration: underline; }
+    .check-how { margin-top: 0.25rem; font-size: 0.82rem; color: #212529; }
+    .check-why { margin-top: 0.15rem; font-size: 0.78rem; color: #6c757d; font-style: italic; }
+    .check-confidence { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 8px; background: #f0f0f0; color: #495057; }
+    .confidence-trusted { background: #d1e7dd; color: #0f5132; }
+    .confidence-calibrated { background: #fff3cd; color: #856404; }
+    .confidence-low { background: #f8d7da; color: #842029; }
+    .confidence-unverified { background: #e9ecef; color: #6c757d; }
+
+    .passed-checks { font-size: 0.82rem; }
+    .passed-checks summary { cursor: pointer; color: #6c757d; font-size: 0.85rem; }
+
+    .human-section { border: 2px solid #dee2e6; border-radius: 8px; padding: 1rem; margin-top: 0.75rem; }
+    .human-section h3 { font-size: 0.9rem; margin-bottom: 0.75rem; }
+    .verdict-buttons { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .verdict-buttons button { flex: 1; padding: 0.5rem; border: 2px solid #dee2e6; border-radius: 6px; font-weight: 600; font-size: 0.85rem; cursor: pointer; background: #fff; transition: all 100ms; }
+    .verdict-buttons button:hover { transform: translateY(-1px); }
+    .verdict-buttons button.v-accept { color: #0f5132; }
+    .verdict-buttons button.v-accept.selected, .verdict-buttons button.v-accept:hover { background: #d1e7dd; border-color: #198754; }
+    .verdict-buttons button.v-review { color: #856404; }
+    .verdict-buttons button.v-review.selected, .verdict-buttons button.v-review:hover { background: #fff3cd; border-color: #fd7e14; }
+    .verdict-buttons button.v-reject { color: #842029; }
+    .verdict-buttons button.v-reject.selected, .verdict-buttons button.v-reject:hover { background: #f8d7da; border-color: #dc3545; }
+    .human-section textarea { width: 100%; min-height: 60px; padding: 0.5rem; border: 1px solid #ced4da; border-radius: 4px; font-family: inherit; font-size: 0.85rem; resize: vertical; margin-bottom: 0.5rem; }
+    .human-section input[type=text] { width: 100%; padding: 0.4rem; border: 1px solid #ced4da; border-radius: 4px; font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .human-section .prior { margin-top: 0.75rem; font-size: 0.8rem; color: #6c757d; padding-top: 0.5rem; border-top: 1px solid #f0f0f0; }
+</style>
+
+<div class="review-nav">
+    <a href="/ops/review/{{ prev_episode_id }}" class="nav-btn {{ 'disabled' if not prev_episode_id }}" id="btn-prev" title="Previous episode (left arrow)">&larr; Prev</a>
+    <span class="ep-title">{{ display_id or episode_id[:24] }}</span>
+    <a href="/ops/review" class="nav-btn">Back to queue</a>
+    <a href="/ops/review/{{ next_episode_id }}" class="nav-btn {{ 'disabled' if not next_episode_id }}" id="btn-next" title="Next episode (right arrow)">Next &rarr;</a>
+</div>
+
+<div class="review-grid">
+    <!-- Left column: video + metadata -->
+    <div class="video-panel">
+        {% if video_url %}
+        <div class="player-wrap">
+            <video id="review-video" controls preload="metadata">
+                <source src="{{ video_url }}" type="video/mp4">
+                Your browser does not support the video element.
+            </video>
+        </div>
+        <div class="speed-bar">
+            <button class="speed-btn" onclick="setSpeed(0.5)">0.5x</button>
+            <button class="speed-btn active" onclick="setSpeed(1)">1x</button>
+            <button class="speed-btn" onclick="setSpeed(1.5)">1.5x</button>
+            <button class="speed-btn" onclick="setSpeed(2)">2x</button>
+        </div>
+        {% else %}
+        <div class="no-video">
+            Video unavailable — run normalization first, or set EUNOMIA_DRAIN_DIR.
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <h2 style="font-size:0.95rem;margin-bottom:0.5rem">Episode metadata</h2>
+            <dl class="meta-grid">
+                <dt>Operator</dt><dd>{{ operator_name or person_id or '—' }}</dd>
+                <dt>Task</dt><dd>{{ task_name or task_id or '—' }}</dd>
+                <dt>Kit</dt><dd>{{ kit_id or '—' }}</dd>
+                <dt>Station</dt><dd>{{ station_id or '—' }}</dd>
+                <dt>Duration</dt><dd>{{ duration }}</dd>
+                <dt>Recorded</dt><dd>{{ recorded_at.strftime('%Y-%m-%d %H:%M UTC') if recorded_at else '—' }}</dd>
+                {% if void %}<dt>Void</dt><dd class="fail">{{ void_reason or 'Yes' }}</dd>{% endif %}
+                {% if recording_suspect %}<dt>Suspect</dt><dd class="warn">Yes</dd>{% endif %}
+            </dl>
+        </div>
+    </div>
+
+    <!-- Right column: QC overlay + human verdict -->
+    <div class="qc-panel">
+        <!-- Auto verdict header -->
+        {% if auto_verdict %}
+        <div class="verdict-header {{ auto_verdict }}">
+            <div class="verdict-text">QC: {{ auto_verdict|upper }}</div>
+            <div class="verdict-score">Score: {{ auto_score }}/100</div>
+        </div>
+        {% else %}
+        <div class="verdict-header" style="background:#e9ecef">
+            <div class="verdict-text" style="color:#6c757d">No QC verdict</div>
+        </div>
+        {% endif %}
+
+        <!-- Failed checks (most important — shown first) -->
+        {% if checks_failed %}
+        <div class="check-section">
+            <h3>Failed checks ({{ checks_failed|length }})</h3>
+            {% for c in checks_failed %}
+            <div class="check-item">
+                <div class="check-name">
+                    <span class="icon-fail">&#10007;</span>
+                    {{ c.name or c.id }}
+                    {% if c.non_negotiable %}<span class="badge badge-danger" style="font-size:0.65rem">non-negotiable</span>{% endif %}
+                    <span class="check-confidence confidence-{{ c.confidence or 'unverified' }}">{{ c.confidence or 'unverified' }}</span>
+                </div>
+                {% if c.when %}
+                <div class="check-when">
+                    <strong>When:</strong>
+                    {% for span in c.when %}
+                        <span class="ts-link" onclick="seekTo({{ span[0] }})" title="Seek to {{ '%.1f'|format(span[0]) }}s">
+                            {{ '%d:%02d'|format(span[0]|int // 60, span[0]|int % 60) }}{% if span|length > 1 %}&ndash;{{ '%d:%02d'|format(span[1]|int // 60, span[1]|int % 60) }}{% endif %}
+                        </span>{{ ', ' if not loop.last }}
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if c.how %}<div class="check-how"><strong>How:</strong> {{ c.how }}</div>{% endif %}
+                {% if c.why %}<div class="check-why"><strong>Why:</strong> {{ c.why }}</div>{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Passed checks (collapsed) -->
+        {% if checks_passed %}
+        <div class="check-section">
+            <details class="passed-checks">
+                <summary>Passed checks ({{ checks_passed|length }})</summary>
+                {% for c in checks_passed %}
+                <div class="check-item">
+                    <div class="check-name">
+                        <span class="icon-pass">&#10003;</span>
+                        {{ c.name or c.id }}
+                        <span class="check-confidence confidence-{{ c.confidence or 'unverified' }}">{{ c.confidence or 'unverified' }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </details>
+        </div>
+        {% endif %}
+
+        <!-- Other checks (n/a, skipped) -->
+        {% if checks_other %}
+        <div class="check-section">
+            <details class="passed-checks">
+                <summary>Not applicable / skipped ({{ checks_other|length }})</summary>
+                {% for c in checks_other %}
+                <div class="check-item">
+                    <div class="check-name">
+                        <span class="icon-na">&#8226;</span>
+                        {{ c.name or c.id }}
+                        <span class="text-muted" style="font-size:0.75rem">{{ c.status }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </details>
+        </div>
+        {% endif %}
+
+        <!-- Human verdict controls -->
+        <div class="human-section" id="human-verdict-section">
+            <h3>Your verdict</h3>
+            <form hx-post="/ops/review/{{ episode_id }}/verdict" hx-target="#verdict-result" hx-swap="innerHTML">
+                <div class="verdict-buttons">
+                    <button type="button" class="v-accept {{ 'selected' if human_verdict == 'accept' }}" onclick="selectVerdict(this, 'accept')">Accept</button>
+                    <button type="button" class="v-review {{ 'selected' if human_verdict == 'review' }}" onclick="selectVerdict(this, 'review')">Flag for Review</button>
+                    <button type="button" class="v-reject {{ 'selected' if human_verdict == 'reject' }}" onclick="selectVerdict(this, 'reject')">Reject</button>
+                </div>
+                <input type="hidden" name="verdict" id="verdict-input" value="{{ human_verdict }}">
+                <textarea name="comment" placeholder="Comment (optional)">{{ human_comment }}</textarea>
+                <input type="text" name="reviewer" id="reviewer-input" placeholder="Your name" value="{{ human_reviewer }}">
+                <button type="submit" class="btn-primary" style="width:100%">Submit verdict</button>
+            </form>
+            <div id="verdict-result">
+                {% if human_verdict %}
+                <div style="margin-top:0.5rem">
+                    {% if human_verdict == 'accept' %}
+                        <span class="badge badge-ok">ACCEPT</span>
+                    {% elif human_verdict == 'review' %}
+                        <span class="badge badge-warn">REVIEW</span>
+                    {% elif human_verdict == 'reject' %}
+                        <span class="badge badge-danger">REJECT</span>
+                    {% endif %}
+                    <span class="text-muted">by {{ human_reviewer }}</span>
+                </div>
+                {% endif %}
+            </div>
+            {% if human_as_of %}
+            <div class="prior">
+                Previous verdict: <strong>{{ human_verdict }}</strong> by {{ human_reviewer }}
+                at {{ human_as_of[:19] if human_as_of is string else human_as_of.strftime('%Y-%m-%d %H:%M UTC') if human_as_of else '' }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+function seekTo(seconds) {
+    var v = document.getElementById('review-video');
+    if (v) { v.currentTime = seconds; v.play(); }
+}
+
+function setSpeed(rate) {
+    var v = document.getElementById('review-video');
+    if (v) v.playbackRate = rate;
+    document.querySelectorAll('.speed-btn').forEach(function(b) {
+        b.classList.toggle('active', parseFloat(b.textContent) === rate);
+    });
+}
+
+function selectVerdict(btn, value) {
+    document.getElementById('verdict-input').value = value;
+    document.querySelectorAll('.verdict-buttons button').forEach(function(b) { b.classList.remove('selected'); });
+    btn.classList.add('selected');
+}
+
+// Persist reviewer name in localStorage
+(function() {
+    var input = document.getElementById('reviewer-input');
+    if (!input) return;
+    var saved = localStorage.getItem('eunomia-reviewer');
+    if (saved && !input.value) input.value = saved;
+    input.addEventListener('change', function() {
+        localStorage.setItem('eunomia-reviewer', input.value);
+    });
+})();
+
+// Arrow key navigation
+document.addEventListener('keydown', function(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    if (e.key === 'ArrowLeft') {
+        var btn = document.getElementById('btn-prev');
+        if (btn && !btn.classList.contains('disabled')) btn.click();
+    } else if (e.key === 'ArrowRight') {
+        var btn = document.getElementById('btn-next');
+        if (btn && !btn.classList.contains('disabled')) btn.click();
+    }
+});
+</script>
+{% endblock %}

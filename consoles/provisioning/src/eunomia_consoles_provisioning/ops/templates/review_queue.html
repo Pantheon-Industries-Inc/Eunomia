@@ -1,0 +1,47 @@
+{% extends "ops_base.html" %}
+{% block title %}Review Queue{% endblock %}
+{% block sub_review %}active{% endblock %}
+{% block content %}
+<h1>Review Queue</h1>
+
+<form class="filters" hx-get="/ops/review/partials/queue-table" hx-target="#queue-table" hx-push-url="true">
+    <div class="field">
+        <label>Operator</label>
+        <input type="text" name="operator_id" value="{{ q_operator_id }}" placeholder="person_id" style="padding:0.4rem;border:1px solid #ced4da;border-radius:4px;font-size:0.85rem;width:130px">
+    </div>
+    <div class="field">
+        <label>Task</label>
+        <input type="text" name="task_id" value="{{ q_task_id }}" placeholder="task_id" style="padding:0.4rem;border:1px solid #ced4da;border-radius:4px;font-size:0.85rem;width:130px">
+    </div>
+    <div class="field">
+        <label>Auto verdict</label>
+        <select name="auto_verdict">
+            <option value="">All</option>
+            <option value="review" {{ 'selected' if q_auto_verdict == 'review' }}>Review</option>
+            <option value="reject" {{ 'selected' if q_auto_verdict == 'reject' }}>Reject</option>
+            <option value="accept" {{ 'selected' if q_auto_verdict == 'accept' }}>Accept</option>
+        </select>
+    </div>
+    <div class="field">
+        <label>Human verdict</label>
+        <select name="human_verdict_filter">
+            <option value="">All</option>
+            <option value="unreviewed" {{ 'selected' if q_human_verdict_filter == 'unreviewed' }}>Not reviewed</option>
+            <option value="reviewed" {{ 'selected' if q_human_verdict_filter == 'reviewed' }}>Reviewed</option>
+        </select>
+    </div>
+    <div class="field">
+        <label>From</label>
+        <input type="date" name="date_from" value="{{ q_date_from }}" style="padding:0.4rem;border:1px solid #ced4da;border-radius:4px;font-size:0.85rem">
+    </div>
+    <div class="field">
+        <label>To</label>
+        <input type="date" name="date_to" value="{{ q_date_to }}" style="padding:0.4rem;border:1px solid #ced4da;border-radius:4px;font-size:0.85rem">
+    </div>
+    <button type="submit" class="btn-primary">Filter</button>
+</form>
+
+<div id="queue-table">
+    {% include "partials/review_queue_table.html" %}
+</div>
+{% endblock %}
