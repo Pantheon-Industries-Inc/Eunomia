@@ -23,6 +23,12 @@
         </div>
         <a href="/ops/review">Review queue</a>
     </div>
+    <div class="card" style="flex: 1; display: flex; justify-content: space-between; align-items: center;">
+        <div id="infra-health" hx-get="/ops/infra/partials/sync-status" hx-trigger="every 30s" hx-swap="innerHTML">
+            <span class="text-muted">Loading infra status...</span>
+        </div>
+        <a href="/ops/infra">Infrastructure</a>
+    </div>
 </div>
 
 <div class="card">

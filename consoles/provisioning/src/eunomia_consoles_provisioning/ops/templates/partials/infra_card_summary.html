@@ -1,0 +1,31 @@
+{% if not has_ingest_root %}
+<p class="text-muted">SD card status is Styx-local — view on the Styx console.</p>
+{% elif card_stats %}
+<div class="stats-grid" style="grid-template-columns: repeat(5, 1fr);">
+    <div class="stat-card">
+        <div class="value">{{ card_stats.get('total', 0) }}</div>
+        <div class="label">Total Slots</div>
+    </div>
+    <div class="stat-card">
+        <div class="value">{{ card_stats.get('present', 0) }}</div>
+        <div class="label">Cards Present</div>
+    </div>
+    <div class="stat-card">
+        <div class="value" style="color: {% if card_stats.get('ingesting', 0) > 0 %}#0d6efd{% else %}#212529{% endif %};">{{ card_stats.get('ingesting', 0) }}</div>
+        <div class="label">Ingesting</div>
+    </div>
+    <div class="stat-card">
+        <div class="value" style="color: #198754;">{{ card_stats.get('drained', 0) }}</div>
+        <div class="label">Drained</div>
+    </div>
+    <div class="stat-card">
+        <div class="value" style="color: {% if card_stats.get('error', 0) > 0 %}#dc3545{% else %}#212529{% endif %};">{{ card_stats.get('error', 0) }}</div>
+        <div class="label">Errors</div>
+    </div>
+</div>
+{% if freshness and freshness.stale %}
+<div class="badge badge-warn" style="margin-top: 0.5rem;">Status data may be stale (last updated {{ freshness.age_seconds }}s ago)</div>
+{% endif %}
+{% else %}
+<p class="text-muted">SD card status unavailable — status JSON not found.</p>
+{% endif %}
