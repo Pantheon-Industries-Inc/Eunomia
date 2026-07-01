@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 from pathlib import Path
 
 from eunomia_normalize.convert import load_intrinsics, normalize_video
@@ -49,6 +50,27 @@ def _update_footage_reference(dsn: str, episode_id: str, normalized_path: Path) 
             log.info("Updated footage_reference for %s", episode_id)
 
 
+def _append_normalized_event(
+    dsn: str, episode_id: str, normalized_path: Path, conversion_seconds: float
+) -> None:
+    """Write the footage_normalized operational_event to S1."""
+    from eunomia_edge_store.config import StoreConfig
+    from eunomia_edge_store.engine import make_engine
+    from eunomia_edge_store.store import append_event
+
+    from eunomia_normalize.events import build_footage_normalized_event
+
+    event = build_footage_normalized_event(
+        episode_id=episode_id,
+        normalized_path=str(normalized_path),
+        duration_s=conversion_seconds,
+    )
+    engine = make_engine(StoreConfig(dsn=dsn))
+    with engine.begin() as conn:
+        append_event(conn, event)
+    log.info("Appended footage_normalized event for %s", episode_id)
+
+
 def _print_summary(result: DiscoverResult, converted: int) -> None:
     lines = [
         f"candidates found:      {len(result.candidates)}",
@@ -79,12 +101,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
     errors = 0
     for c in result.candidates:
         try:
+            t0 = time.monotonic()
             out = normalize_video(c.footage_path, c.output_dir, intrinsics)
+            elapsed = time.monotonic() - t0
             converted += 1
 
             if args.dsn and c.episode_id:
                 try:
                     _update_footage_reference(args.dsn, c.episode_id, out)
+                    _append_normalized_event(args.dsn, c.episode_id, out, elapsed)
                 except Exception:
                     log.exception("Failed to update S1 for episode %s", c.episode_id)
         except Exception:
