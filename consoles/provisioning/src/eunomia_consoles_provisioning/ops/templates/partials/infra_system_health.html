@@ -1,0 +1,25 @@
+<h2 style="margin: 0 0 0.75rem;">System Health</h2>
+{% if health.disks %}
+{% for disk in health.disks %}
+<div style="margin-bottom: 0.5rem;">
+    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 0.25rem;">
+        <span style="font-weight: 500;">{{ disk.mount }}</span>
+        <span>{{ disk.used_gb }} / {{ disk.total_gb }} GB ({{ disk.pct }}%)</span>
+    </div>
+    <div class="bar">
+        <div class="bar-fill" style="width: {{ disk.pct }}%; background: {% if disk.pct >= 90 %}#dc3545{% elif disk.pct >= 75 %}#fd7e14{% else %}#198754{% endif %};"></div>
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<p class="text-muted">No disk information available</p>
+{% endif %}
+
+<div style="display: flex; gap: 1.5rem; margin-top: 0.75rem; font-size: 0.85rem;">
+    {% if health.uptime_formatted %}
+    <div><span class="text-muted">Uptime:</span> {{ health.uptime_formatted }}</div>
+    {% endif %}
+    {% if health.load_avg %}
+    <div><span class="text-muted">Load:</span> {{ health.load_avg | join(', ') }}</div>
+    {% endif %}
+</div>

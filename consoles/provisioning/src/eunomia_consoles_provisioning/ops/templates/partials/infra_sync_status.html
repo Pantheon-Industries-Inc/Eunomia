@@ -1,0 +1,45 @@
+<h2 style="margin: 0 0 0.75rem;">SYNC Status</h2>
+{% if sync %}
+<div style="display: flex; gap: 1rem; margin-bottom: 0.5rem; align-items: center;">
+    {% set lag = sync.replication.lag_seconds | default(-1) %}
+    {% set active = sync.replication.subscription_active | default(false) %}
+    {% set reachable = sync.footage.styx_reachable | default(false) %}
+    {% if active and lag >= 0 and lag < 60 and reachable %}
+    <span class="badge badge-ok">Healthy</span>
+    {% elif active and lag >= 0 and lag < 600 %}
+    <span class="badge badge-warn">Lag {{ lag }}s</span>
+    {% else %}
+    <span class="badge badge-danger">Degraded</span>
+    {% endif %}
+
+    <span style="font-size: 0.85rem;">
+        {% if reachable %}
+        <span style="color: #198754;">● Styx reachable</span>
+        {% else %}
+        <span style="color: #dc3545;">● Styx unreachable</span>
+        {% endif %}
+    </span>
+</div>
+
+<div style="font-size: 0.85rem;">
+    <div style="margin-bottom: 0.25rem;"><span class="text-muted">Replication:</span>
+        {% if active %}active{% else %}<span class="fail">inactive</span>{% endif %}
+        {% if lag >= 0 %} · lag {{ lag }}s{% endif %}
+    </div>
+    <div style="margin-bottom: 0.25rem;"><span class="text-muted">Footage:</span>
+        {{ sync.footage.episodes_synced_total | default(0) }} synced
+        · {{ sync.footage.episodes_pending | default(0) }} pending
+        {% if sync.footage.episodes_broken | default(0) > 0 %}
+        · <span class="fail">{{ sync.footage.episodes_broken }} broken</span>
+        {% endif %}
+    </div>
+    {% if sync.footage.last_success %}
+    <div style="margin-bottom: 0.25rem;"><span class="text-muted">Last sync:</span> {{ sync.footage.last_success }}</div>
+    {% endif %}
+    {% if sync.footage.effective_mbps %}
+    <div><span class="text-muted">Throughput:</span> {{ sync.footage.effective_mbps }} Mbps</div>
+    {% endif %}
+</div>
+{% else %}
+<p class="text-muted">SYNC status unavailable — no status.json found</p>
+{% endif %}

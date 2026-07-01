@@ -1,0 +1,27 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — SD Cards{% endblock %}
+{% block sub_infra %}active{% endblock %}
+{% block content %}
+<a href="/ops/infra" class="back-link">← Infrastructure</a>
+<h1>SD Card Status</h1>
+
+{% if not has_ingest_root %}
+<div class="card">
+    <p class="text-muted">SD card status is Styx-local — this console is not running on Styx.</p>
+    <p style="font-size: 0.85rem;">Set <code>EUNOMIA_INGEST_ROOT</code> to the Styx ingest directory to enable this page.</p>
+</div>
+{% elif status is none %}
+<div class="card">
+    <p class="text-muted">SD card status unavailable — status JSON not found at the configured path.</p>
+</div>
+{% else %}
+
+{% if freshness and freshness.stale %}
+<div class="badge badge-warn" style="margin-bottom: 1rem;">Status data may be stale (last updated {{ freshness.age_seconds }}s ago)</div>
+{% endif %}
+
+<div class="card" id="card-table-area" hx-get="/ops/infra/partials/card-table" hx-trigger="every 10s" hx-swap="innerHTML">
+    {% include "partials/infra_card_table.html" %}
+</div>
+{% endif %}
+{% endblock %}

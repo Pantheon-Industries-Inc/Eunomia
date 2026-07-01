@@ -1,0 +1,142 @@
+{% if status %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+    <h2 style="margin: 0;">Ingest Slots</h2>
+    <span class="text-muted" style="font-size: 0.75rem;">auto-refresh 10s</span>
+</div>
+<div class="table-wrap">
+<table>
+    <thead>
+        <tr>
+            <th>Slot</th>
+            <th>Operator</th>
+            <th>Side</th>
+            <th>Status</th>
+            <th>Card</th>
+            <th>Progress</th>
+            <th>Instruction</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for slot in status.get('slots', []) %}
+        {% set st = slot.get('latest_status', '') %}
+        {% set cls = slot.get('instr_class', '') %}
+        <tr>
+            <td style="font-family: monospace; font-size: 0.8rem;">{{ slot.get('slot_key', '—') }}</td>
+            <td>{{ slot.get('operator', '—') }}</td>
+            <td>{{ slot.get('side', '—') }}</td>
+            <td>
+                {% if cls == 'ok' %}
+                <span class="badge badge-ok">{{ st }}</span>
+                {% elif cls == 'err' %}
+                <span class="badge badge-danger">{{ st }}</span>
+                {% elif cls == 'warn' %}
+                <span class="badge badge-warn">{{ st }}</span>
+                {% elif cls == 'wait' %}
+                <span class="badge" style="background: #cfe2ff; color: #084298;">{{ st }}</span>
+                {% elif st %}
+                <span class="badge" style="background: #e9ecef; color: #495057;">{{ st }}</span>
+                {% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
+            </td>
+            <td>{{ slot.get('live_label', '—') }}</td>
+            <td style="min-width: 80px;">
+                {% if st == 'copying' %}
+                {% set pct = slot.get('copy_percent', 0) %}
+                <div class="bar" style="margin-bottom: 0.15rem;">
+                    <div class="bar-fill" style="width: {{ pct }}%; background: #0d6efd;"></div>
+                </div>
+                <span style="font-size: 0.75rem;">{{ pct }}%</span>
+                {% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
+            </td>
+            <td style="font-size: 0.8rem;">{{ slot.get('instruction', '') }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+
+{% if status.get('imports', []) %}
+<h2 style="margin: 1.5rem 0 0.5rem;">Active Imports</h2>
+<div class="table-wrap">
+<table>
+    <thead>
+        <tr>
+            <th>Import</th>
+            <th>Serial</th>
+            <th>Operator</th>
+            <th>Side</th>
+            <th>Progress</th>
+            <th>Speed</th>
+            <th>Stall</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for imp in status.get('imports', []) %}
+        <tr>
+            <td style="font-family: monospace; font-size: 0.8rem;">{{ imp.get('import_id', '—')[:12] }}</td>
+            <td style="font-family: monospace; font-size: 0.8rem;" title="{{ imp.get('camera_serial', '') }}">{{ imp.get('camera_alias', imp.get('camera_serial', '—')[:8]) }}</td>
+            <td>{{ imp.get('operator', '—') }}</td>
+            <td>{{ imp.get('side', '—') }}</td>
+            <td style="min-width: 80px;">
+                {% set pct = imp.get('copy_percent', 0) %}
+                <div class="bar" style="margin-bottom: 0.15rem;">
+                    <div class="bar-fill" style="width: {{ pct }}%; background: #0d6efd;"></div>
+                </div>
+                <span style="font-size: 0.75rem;">{{ pct }}%</span>
+            </td>
+            <td>
+                {% set speed = imp.get('speed_bps', 0) %}
+                {% if speed > 0 %}
+                {{ (speed / 1048576) | round(1) }} MB/s
+                {% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
+            </td>
+            <td>
+                {% set stall = imp.get('stall_secs', 0) %}
+                {% if stall > 30 %}
+                <span class="badge badge-warn">{{ stall }}s</span>
+                {% elif stall > 0 %}
+                {{ stall }}s
+                {% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% endif %}
+
+{% if status.get('unmapped_devices', []) %}
+<h2 style="margin: 1.5rem 0 0.5rem;">Unmapped Devices</h2>
+<div class="card" style="background: #fff3cd; border-color: #ffecb5;">
+    <p style="font-size: 0.85rem; margin-bottom: 0.5rem;">These devices are present but not mapped to any slot in the port map.</p>
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Device</th>
+                <th>Label</th>
+                <th>Instruction</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for dev in status.get('unmapped_devices', []) %}
+            <tr>
+                <td style="font-family: monospace; font-size: 0.8rem;">{{ dev.get('device', '—') }}</td>
+                <td>{{ dev.get('label', '—') }}</td>
+                <td>{{ dev.get('instruction', '') }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}
+
+{% endif %}

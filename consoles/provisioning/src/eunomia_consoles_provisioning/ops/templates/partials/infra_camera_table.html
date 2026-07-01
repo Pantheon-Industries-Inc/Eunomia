@@ -1,0 +1,123 @@
+{% if warnings %}
+<div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+    {% for w in warnings %}
+    {% if w.type == 'duplicate' %}
+    <span class="badge badge-danger">{{ w.detail }}</span>
+    {% elif w.type == 'one_side' %}
+    <span class="badge badge-warn">{{ w.detail }}</span>
+    {% elif w.type == 'unassigned' %}
+    <span class="badge" style="background: #e9ecef; color: #495057;">{{ w.detail }}</span>
+    {% endif %}
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <h2 style="margin: 0;">Cameras ({{ camera_map | length }})</h2>
+    </div>
+    {% if camera_map %}
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Serial</th>
+                <th>Alias</th>
+                <th>Operator</th>
+                <th>Side</th>
+                <th>Active</th>
+                <th>Notes</th>
+                <th>Updated</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for serial, entry in camera_map.items() %}
+            <tr id="cam-row-{{ serial }}">
+                <td style="font-family: monospace; font-size: 0.8rem;" title="{{ serial }}">{{ serial[:12] }}{% if serial | length > 12 %}…{% endif %}</td>
+                <td>{{ entry.get('alias', '') }}</td>
+                <td>{{ entry.get('operator', '') }}</td>
+                <td>{{ entry.get('side', '') }}</td>
+                <td>
+                    {% if entry.get('active', true) %}
+                    <span style="color: #198754;">●</span>
+                    {% else %}
+                    <span style="color: #dc3545;">●</span>
+                    {% endif %}
+                </td>
+                <td style="font-size: 0.8rem;">{{ entry.get('notes', '') }}</td>
+                <td style="font-size: 0.75rem;" class="text-muted">{{ entry.get('last_updated', '')[:16] }}</td>
+                <td>
+                    <button class="btn-primary" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;"
+                            onclick="editRow('{{ serial }}', this)">Edit</button>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="empty">No cameras configured</p>
+    {% endif %}
+</div>
+
+<script>
+function editRow(serial, btn) {
+    const row = document.getElementById('cam-row-' + serial);
+    if (!row) return;
+    const cells = row.querySelectorAll('td');
+    const alias = cells[1].textContent.trim();
+    const operator = cells[2].textContent.trim();
+    const side = cells[3].textContent.trim();
+    const active = cells[4].textContent.trim() === '●' && cells[4].querySelector('span').style.color.includes('198754');
+    const notes = cells[5].textContent.trim();
+
+    cells[1].innerHTML = '<input type="text" value="' + alias + '" style="padding:0.2rem;border:1px solid #ced4da;border-radius:4px;font-size:0.8rem;width:90px;" data-field="alias">';
+    cells[2].innerHTML = '<input type="text" value="' + operator + '" style="padding:0.2rem;border:1px solid #ced4da;border-radius:4px;font-size:0.8rem;width:90px;" data-field="operator">';
+    cells[3].innerHTML = '<select style="padding:0.2rem;border:1px solid #ced4da;border-radius:4px;font-size:0.8rem;" data-field="side"><option value="">—</option><option value="left"' + (side==='left'?' selected':'') + '>left</option><option value="right"' + (side==='right'?' selected':'') + '>right</option></select>';
+    cells[4].innerHTML = '<input type="checkbox"' + (active?' checked':'') + ' data-field="active">';
+    cells[5].innerHTML = '<input type="text" value="' + notes + '" style="padding:0.2rem;border:1px solid #ced4da;border-radius:4px;font-size:0.8rem;width:100px;" data-field="notes">';
+    btn.textContent = 'Save';
+    btn.onclick = function() { saveRow(serial); };
+}
+
+function saveRow(serial) {
+    // Collect the full current camera map from the table and save
+    const rows = document.querySelectorAll('tbody tr');
+    const map = {};
+    rows.forEach(function(row) {
+        const rowSerial = row.id.replace('cam-row-', '');
+        const inputs = row.querySelectorAll('input, select');
+        if (inputs.length > 0) {
+            // Edited row
+            const entry = {serial: rowSerial};
+            inputs.forEach(function(inp) {
+                const field = inp.dataset.field;
+                if (field === 'active') entry[field] = inp.checked;
+                else if (field) entry[field] = inp.value;
+            });
+            map[rowSerial] = entry;
+        } else {
+            // Unedited row — read from cells
+            const cells = row.querySelectorAll('td');
+            map[rowSerial] = {
+                serial: rowSerial,
+                alias: cells[1].textContent.trim(),
+                operator: cells[2].textContent.trim(),
+                side: cells[3].textContent.trim(),
+                active: cells[4].textContent.trim() === '●' && cells[4].querySelector('span') && cells[4].querySelector('span').style.color.includes('198754'),
+                notes: cells[5].textContent.trim()
+            };
+        }
+    });
+
+    const form = new FormData();
+    form.append('camera_map_json', JSON.stringify(map));
+
+    htmx.ajax('POST', '/ops/infra/cameras/save', {
+        target: '#camera-table-area',
+        swap: 'innerHTML',
+        values: {camera_map_json: JSON.stringify(map)}
+    });
+}
+</script>

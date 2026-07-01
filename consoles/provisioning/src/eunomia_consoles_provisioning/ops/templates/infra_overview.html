@@ -1,0 +1,38 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — Infrastructure{% endblock %}
+{% block sub_infra %}active{% endblock %}
+{% block content %}
+<h1>Infrastructure Health</h1>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
+    <div class="card" id="system-health" hx-get="/ops/infra/partials/system-health" hx-trigger="every 30s" hx-swap="innerHTML">
+        {% include "partials/infra_system_health.html" %}
+    </div>
+    <div class="card" id="sync-status" hx-get="/ops/infra/partials/sync-status" hx-trigger="every 30s" hx-swap="innerHTML">
+        {% include "partials/infra_sync_status.html" %}
+    </div>
+</div>
+
+<div class="card" style="margin-bottom: 1rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <h2 style="margin: 0;">SD Card Status</h2>
+        {% if has_ingest_root %}
+        <span class="text-muted" style="font-size: 0.75rem;">auto-refresh 10s</span>
+        {% endif %}
+    </div>
+    <div id="card-summary" hx-get="/ops/infra/partials/card-summary" hx-trigger="every 10s" hx-swap="innerHTML">
+        {% include "partials/infra_card_summary.html" %}
+    </div>
+</div>
+
+<div style="display: flex; gap: 0.75rem;">
+    <a href="/ops/infra/cards" class="card" style="flex: 1; text-align: center; text-decoration: none; color: inherit; padding: 1rem;">
+        <div style="font-size: 1.2rem; font-weight: 600;">SD Cards</div>
+        <div class="text-muted" style="font-size: 0.85rem;">Slot status, active imports, unmapped devices</div>
+    </a>
+    <a href="/ops/infra/cameras" class="card" style="flex: 1; text-align: center; text-decoration: none; color: inherit; padding: 1rem;">
+        <div style="font-size: 1.2rem; font-weight: 600;">Camera Map</div>
+        <div class="text-muted" style="font-size: 0.85rem;">Camera serial → operator/side assignments</div>
+    </a>
+</div>
+{% endblock %}

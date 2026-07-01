@@ -1,0 +1,58 @@
+{% extends "ops_base.html" %}
+{% block title %}Ops — Camera Map{% endblock %}
+{% block sub_infra %}active{% endblock %}
+{% block content %}
+<a href="/ops/infra" class="back-link">← Infrastructure</a>
+<h1>Camera Map</h1>
+
+{% if not has_ingest_root %}
+<div class="card">
+    <p class="text-muted">Camera map editing requires Styx access — this console is not running on Styx.</p>
+    <p style="font-size: 0.85rem;">Set <code>EUNOMIA_INGEST_ROOT</code> to the Styx ingest directory to enable this page.</p>
+</div>
+{% else %}
+
+{% if ingesting > 0 %}
+<div class="card" style="background: #fff3cd; border-color: #ffecb5; margin-bottom: 1rem;">
+    <p style="font-size: 0.85rem; margin: 0;">⚠ {{ ingesting }} ingest{{ 's' if ingesting != 1 else '' }} currently running. Camera map changes will take effect on the next ingest.</p>
+</div>
+{% endif %}
+
+<div id="camera-table-area">
+    {% include "partials/infra_camera_table.html" %}
+</div>
+
+<div class="card" style="margin-top: 1rem;">
+    <h2 style="margin: 0 0 0.75rem;">Add Camera</h2>
+    <form hx-post="/ops/infra/cameras/add" hx-target="#camera-table-area" hx-swap="innerHTML">
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: end;">
+            <div class="field">
+                <label>Serial *</label>
+                <input type="text" name="serial" required style="padding: 0.4rem; border: 1px solid #ced4da; border-radius: 4px; font-size: 0.85rem; font-family: monospace; width: 140px;">
+            </div>
+            <div class="field">
+                <label>Alias</label>
+                <input type="text" name="alias" style="padding: 0.4rem; border: 1px solid #ced4da; border-radius: 4px; font-size: 0.85rem; width: 120px;">
+            </div>
+            <div class="field">
+                <label>Operator</label>
+                <input type="text" name="operator" style="padding: 0.4rem; border: 1px solid #ced4da; border-radius: 4px; font-size: 0.85rem; width: 120px;">
+            </div>
+            <div class="field">
+                <label>Side</label>
+                <select name="side" style="padding: 0.4rem; border: 1px solid #ced4da; border-radius: 4px; font-size: 0.85rem;">
+                    <option value="">—</option>
+                    <option value="left">left</option>
+                    <option value="right">right</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Notes</label>
+                <input type="text" name="notes" style="padding: 0.4rem; border: 1px solid #ced4da; border-radius: 4px; font-size: 0.85rem; width: 140px;">
+            </div>
+            <button type="submit" class="btn-primary">Add</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+{% endblock %}
