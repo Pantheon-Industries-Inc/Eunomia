@@ -8,13 +8,21 @@
     {% include "partials/overview_stats.html" %}
 </div>
 
-<div class="card" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
-    <div>
-        <span id="anomaly-badge" hx-get="/ops/partials/anomaly-count" hx-trigger="every 30s" hx-swap="innerHTML">
-            {% include "partials/anomaly_count.html" %}
-        </span>
+<div style="display: flex; gap: 0.75rem; margin-bottom: 1rem;">
+    <div class="card" style="flex: 1; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <span id="anomaly-badge" hx-get="/ops/partials/anomaly-count" hx-trigger="every 30s" hx-swap="innerHTML">
+                {% include "partials/anomaly_count.html" %}
+            </span>
+        </div>
+        <a href="/ops/anomalies">View all anomalies</a>
     </div>
-    <a href="/ops/anomalies">View all anomalies</a>
+    <div class="card" style="flex: 1; display: flex; justify-content: space-between; align-items: center;">
+        <div id="review-stats" hx-get="/ops/review/partials/review-stats" hx-trigger="every 30s" hx-swap="innerHTML">
+            <span class="text-muted">Loading review stats...</span>
+        </div>
+        <a href="/ops/review">Review queue</a>
+    </div>
 </div>
 
 <div class="card">
