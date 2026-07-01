@@ -48,6 +48,7 @@ class SidecarRecord:
     kit_version: str | None
     site_id: str | None
     modality: str | None
+    raw: dict[str, Any]
     sidecar_path: Path
     footage_path: Path | None
     footage_exists: bool
@@ -135,6 +136,7 @@ def parse_sidecar(path: Path) -> tuple[SidecarRecord | None, list[str]]:
         kit_version=_opt_str(provenance.get("kit_version")),
         site_id=_opt_str(provenance.get("site_id")),
         modality=_opt_str(provenance.get("modality")),
+        raw=raw,
         sidecar_path=path,
         footage_path=footage_path,
         footage_exists=footage_exists,

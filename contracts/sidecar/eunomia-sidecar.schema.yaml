@@ -13,6 +13,11 @@
 #   warn = downstream-consumed but recoverable; surfaced in triage, non-blocking
 #   conditional:true = required only when `schema` declares v1+ (the v1-extra hard set, OQ-4)
 #
+# NOTE R4: The full sidecar is also stored as-is in episode.sidecar_raw (JSONB).
+# New fields added to the sidecar will appear in sidecar_raw automatically,
+# without requiring a store migration or contract change. Promote fields to
+# typed episode columns when a consumer needs to query/index them.
+#
 # STRUCTURE (OQ-2, resolved): the §2.2 field groups are encoded as NESTED objects
 # (identity/timing/provenance/outcome/files) + top-level scalars. This realizes CONTRACT §2's
 # stated change "(a) clean namespacing of the field groups" over the as-built (which scattered

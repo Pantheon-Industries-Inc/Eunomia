@@ -75,6 +75,8 @@ def _sidecar_to_episode(sc: SidecarRecord) -> dict[str, Any]:
         "paired": False,
         "void": False,
         "needs_review": False,
+        "sidecar_raw": sc.raw,
+        "firmware_version": sc.fob_build,
     }
 
 
